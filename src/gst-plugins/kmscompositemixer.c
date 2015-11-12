@@ -455,8 +455,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -648,6 +648,127 @@ pad_removed_cb (GstElement * element, GstPad * pad, gpointer data)
   GST_DEBUG ("Removed pad %" GST_PTR_FORMAT, pad);
 }
 
+static int
+create_freezeimage_video (KmsCompositeMixer * self)
+{
+  GstElement *source, *jpg_decoder, *freeze;
+  GstElement *capsfilter;
+  GstElement *input_capsfilter, *videoconvert;
+  GstCaps *filtercaps;
+
+//  GstPad *pad;
+  GstPad *video_mixer_pad;
+  GstPadTemplate *sink_pad_template;
+
+  source = gst_element_factory_make ("filesrc", "file-source");
+  //set the location of the file to the argv[1]
+  g_object_set (G_OBJECT (source), "location",
+      "/var/log/kurento-media-server/bg.jpg", NULL);
+  if (!source) {
+    GST_ERROR ("File could not be created. Exiting.\n");
+    return -1;
+  }
+
+  jpg_decoder = gst_element_factory_make ("jpegdec", "jpg-decoder");
+  if (!jpg_decoder) {
+    GST_ERROR ("Jpg Decoder could not be created. Exiting.\n");
+    return -1;
+  }
+
+  freeze = gst_element_factory_make ("imagefreeze", "freeze");
+  if (!freeze) {
+    GST_ERROR ("ImageFreeze could not be created. Exiting.\n");
+    return -1;
+  }
+
+  videoconvert = gst_element_factory_make ("videoconvert", NULL);
+  input_capsfilter = gst_element_factory_make ("capsfilter", NULL);
+
+  filtercaps =
+      gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "AYUV",
+      "width", G_TYPE_INT, self->priv->output_width,
+      "height", G_TYPE_INT, self->priv->output_height,
+      "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
+  g_object_set (G_OBJECT (input_capsfilter), "caps", filtercaps, NULL);
+  gst_caps_unref (filtercaps);
+
+  sink_pad_template =
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS
+      (self->priv->videomixer), "sink_%u");
+
+  capsfilter = gst_element_factory_make ("capsfilter", NULL);
+
+  filtercaps =
+      gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "AYUV",
+      "width", G_TYPE_INT, self->priv->output_width,
+      "height", G_TYPE_INT, self->priv->output_height,
+      "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
+  g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
+  gst_caps_unref (filtercaps);
+
+  gst_bin_add_many (GST_BIN (self), source, jpg_decoder, freeze,
+      input_capsfilter, videoconvert, capsfilter, NULL);
+  gst_element_link_many (source, jpg_decoder, freeze, input_capsfilter,
+      videoconvert, capsfilter, NULL);
+
+  /*link capsfilter -> videomixer */
+  video_mixer_pad =
+      gst_element_request_pad (self->priv->videomixer,
+      sink_pad_template, NULL, NULL);
+  gst_element_link_pads (capsfilter, NULL,
+      self->priv->videomixer, GST_OBJECT_NAME (video_mixer_pad));
+
+//  gst_element_link (videoconvert, self->priv->videomixer);
+
+  /*link capsfilter -> videomixer */
+/*
+  pad = gst_element_request_pad (self->priv->videomixer, sink_pad_template,
+      NULL, NULL);
+
+  gst_element_link_pads (capsfilter, NULL,
+      self->priv->videomixer, GST_OBJECT_NAME (pad));
+  g_object_set (pad, "xpos", 0, "ypos", 0, "alpha", 1.0, NULL);
+  g_object_unref (pad);
+*/
+
+/*
+  colorspace = gst_element_factory_make ("ffmpegcolorspace", "colorspace");
+  if (!colorspace) {
+    GST_ERROR ("Colorspace could not be created. Exiting.\n");
+    return -1;
+  }
+  sink = gst_element_factory_make ("ximagesink", "imagesink");
+  if (!sink) {
+    GST_ERROR ("Image sink could not be created. Exiting.\n");
+    return -1;
+  }
+*/
+/* file-source | jpg-decoder | image-freeze | colorspace | sink */
+  gst_element_sync_state_with_parent (source);
+  gst_element_sync_state_with_parent (jpg_decoder);
+  gst_element_sync_state_with_parent (freeze);
+  gst_element_sync_state_with_parent (capsfilter);
+  gst_element_sync_state_with_parent (videoconvert);
+  gst_element_sync_state_with_parent (input_capsfilter);
+
+  GST_DEBUG ("finish freeze image video");
+  self->priv->videotestsrc = freeze;
+  return 0;
+}
+
+#if 0
+GstPad *sinkpad;
+
+/* called when uridecodebin has a new pad */
+static void
+cb_pad_added (GstElement * element, GstPad * pad, gpointer user_data)
+{
+  GST_INFO ("@rentao enter");
+  /* try to link to the video pad */
+  gst_pad_link (pad, sinkpad);
+}
+#endif
+
 static gint
 kms_composite_mixer_handle_port (KmsBaseHub * mixer,
     GstElement * mixer_end_point)
@@ -656,11 +777,11 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
   KmsCompositeMixerData *port_data;
   gint port_id;
 
-  GST_DEBUG ("handle_port");
+  GST_INFO ("@rentao handle_port");
   port_id = KMS_BASE_HUB_CLASS (G_OBJECT_CLASS
       (kms_composite_mixer_parent_class))->handle_port (mixer, mixer_end_point);
 
-  GST_DEBUG ("base_hub::handle_port return %d", port_id);
+  GST_INFO ("@rentao base_hub::handle_port return %d", port_id);
 
   if (port_id < 0) {
     return port_id;
@@ -680,12 +801,116 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
     gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer, videorate_mixer,
         self->priv->mixer_video_agnostic, NULL);
 
+    if (0)
+      create_freezeimage_video (self);
+
+    // url image -> imagefreeze --> videomixer
+    while (self->priv->videotestsrc == NULL) {
+      GstElement *source, *jpg_decoder;
+      GstElement *capsfilter, *freeze, *videorate;
+      GstCaps *filtercaps;
+      GstPad *pad;
+      GstPadTemplate *sink_pad_template;
+
+#if 0
+      source = gst_element_factory_make ("filesrc", "file-source");
+      //set the location of the file to the argv[1]
+      g_object_set (G_OBJECT (source), "location",
+          "/var/log/kurento-media-server/bg.jpg", NULL);
+#endif
+      source = gst_element_factory_make ("multifilesrc", NULL);
+      if (!source) {
+        GST_ERROR ("File could not be created. Exiting.\n");
+        return -1;
+      }
+      g_object_set (G_OBJECT (source), "location",
+          "/var/log/kurento-media-server/bg800x600.jpeg", NULL);
+      filtercaps =
+          gst_caps_new_simple ("image/jpeg", "format", G_TYPE_STRING, "AYUV",
+          "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
+      g_object_set (G_OBJECT (source), "caps", filtercaps, NULL);
+      gst_caps_unref (filtercaps);
+
+      jpg_decoder = gst_element_factory_make ("jpegdec", NULL);
+      if (!jpg_decoder) {
+        GST_ERROR ("Jpg Decoder could not be created. Exiting.\n");
+        return -1;
+      }
+
+      sink_pad_template =
+          gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS
+          (self->priv->videomixer), "sink_%u");
+
+      if (G_UNLIKELY (sink_pad_template == NULL)) {
+        GST_ERROR_OBJECT (self, "Error taking a new pad from videomixer");
+        break;
+      }
+#if 0
+      self->priv->videotestsrc =
+          gst_element_factory_make ("uridecodebin", NULL);
+      freeze = gst_element_factory_make ("imagefreeze", "freeze");
+      if (!freeze) {
+        GST_ERROR ("ImageFreeze could not be created. Exiting.\n");
+        break;
+      }
+
+      g_object_set (self->priv->videotestsrc, "uri", "http://dummyimage.com/640x480/09f.png",   // "http://lorempixel.com/640/480/sports/", 
+          NULL);
+#endif
+
+      freeze = gst_element_factory_make ("videoconvert", NULL);
+      videorate = gst_element_factory_make ("videorate", NULL);
+
+      capsfilter = gst_element_factory_make ("capsfilter", "capsfilter000");
+      filtercaps =
+          gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "AYUV",
+          "width", G_TYPE_INT, self->priv->output_width,
+          "height", G_TYPE_INT, self->priv->output_height,
+          "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
+      g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
+      gst_caps_unref (filtercaps);
+
+//@      gst_bin_add_many (GST_BIN (self), self->priv->videotestsrc, freeze,
+//@          capsfilter, NULL);
+      gst_bin_add_many (GST_BIN (self), source, jpg_decoder, freeze, videorate,
+          capsfilter, NULL);
+
+      GST_DEBUG ("link uri to freeze");
+      gst_element_link_many (source, jpg_decoder, freeze, videorate, NULL);
+//@      sinkpad = gst_element_get_static_pad (freeze, "sink");
+//@      g_signal_connect (self->priv->videotestsrc, "pad-added",
+//@      (GCallback) cb_pad_added, self);
+//      gst_element_link (self->priv->videotestsrc, freeze);
+      GST_DEBUG ("link freeze to capsfilter");
+      gst_element_link (videorate, capsfilter);
+      GST_DEBUG ("link finished.");
+
+      /*link capsfilter -> videomixer */
+      pad = gst_element_request_pad (self->priv->videomixer, sink_pad_template,
+          NULL, NULL);
+
+      gst_element_link_pads (capsfilter, NULL,
+          self->priv->videomixer, GST_OBJECT_NAME (pad));
+      g_object_set (pad, "xpos", 0, "ypos", 0, "alpha", 1.0, NULL);
+      g_object_unref (pad);
+
+      gst_element_sync_state_with_parent (capsfilter);
+      gst_element_sync_state_with_parent (videorate);
+      gst_element_sync_state_with_parent (freeze);
+      gst_element_sync_state_with_parent (jpg_decoder);
+      gst_element_sync_state_with_parent (source);
+      GST_DEBUG ("@rentao create uri image background");
+      self->priv->videotestsrc = source;
+      break;
+    }
+
     if (self->priv->videotestsrc == NULL) {
       GstElement *capsfilter;
       GstCaps *filtercaps;
       GstPad *pad;
       GstPadTemplate *sink_pad_template;
 
+      GST_DEBUG ("@rentao create videotestsrc.");
       sink_pad_template =
           gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS
           (self->priv->videomixer), "sink_%u");
@@ -753,7 +978,7 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
 
   KMS_COMPOSITE_MIXER_UNLOCK (self);
 
-  GST_DEBUG ("handle_port return %d", port_id);
+  GST_DEBUG ("@rentao handle_port return %d", port_id);
   return port_id;
 }
 
