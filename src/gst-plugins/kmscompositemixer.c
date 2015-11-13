@@ -455,8 +455,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -807,7 +807,7 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
     // url image -> imagefreeze --> videomixer
     while (self->priv->videotestsrc == NULL) {
       GstElement *source, *jpg_decoder;
-      GstElement *capsfilter, *freeze, *videorate;
+      GstElement *capsfilter, *freeze, *videoconvert, *videorate;
       GstCaps *filtercaps;
       GstPad *pad;
       GstPadTemplate *sink_pad_template;
@@ -818,7 +818,7 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
       g_object_set (G_OBJECT (source), "location",
           "/var/log/kurento-media-server/bg.jpg", NULL);
 #endif
-      source = gst_element_factory_make ("multifilesrc", NULL);
+      source = gst_element_factory_make ("filesrc", NULL);
       if (!source) {
         GST_ERROR ("File could not be created. Exiting.\n");
         return -1;
@@ -826,7 +826,7 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
       g_object_set (G_OBJECT (source), "location",
           "/var/log/kurento-media-server/bg800x600.jpeg", NULL);
       filtercaps =
-          gst_caps_new_simple ("image/jpeg", "format", G_TYPE_STRING, "AYUV",
+          gst_caps_new_simple ("image/jpeg",
           "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
       g_object_set (G_OBJECT (source), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
@@ -846,19 +846,12 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
         break;
       }
 #if 0
-      self->priv->videotestsrc =
-          gst_element_factory_make ("uridecodebin", NULL);
-      freeze = gst_element_factory_make ("imagefreeze", "freeze");
-      if (!freeze) {
-        GST_ERROR ("ImageFreeze could not be created. Exiting.\n");
-        break;
-      }
-
-      g_object_set (self->priv->videotestsrc, "uri", "http://dummyimage.com/640x480/09f.png",   // "http://lorempixel.com/640/480/sports/", 
-          NULL);
+      source = gst_element_factory_make ("souphttpsrc", NULL);
+      g_object_set (source, "location", "http://lorempixel.com/800/600/sports/",
+          "is-live", TRUE, NULL);
 #endif
-
-      freeze = gst_element_factory_make ("videoconvert", NULL);
+      freeze = gst_element_factory_make ("imagefreeze", NULL);
+      videoconvert = gst_element_factory_make ("videoconvert", NULL);
       videorate = gst_element_factory_make ("videorate", NULL);
 
       capsfilter = gst_element_factory_make ("capsfilter", "capsfilter000");
@@ -872,11 +865,12 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
 
 //@      gst_bin_add_many (GST_BIN (self), self->priv->videotestsrc, freeze,
 //@          capsfilter, NULL);
-      gst_bin_add_many (GST_BIN (self), source, jpg_decoder, freeze, videorate,
-          capsfilter, NULL);
+      gst_bin_add_many (GST_BIN (self), source, jpg_decoder, freeze,
+          videoconvert, videorate, capsfilter, NULL);
 
       GST_DEBUG ("link uri to freeze");
-      gst_element_link_many (source, jpg_decoder, freeze, videorate, NULL);
+      gst_element_link_many (source, jpg_decoder, freeze, videoconvert,
+          videorate, NULL);
 //@      sinkpad = gst_element_get_static_pad (freeze, "sink");
 //@      g_signal_connect (self->priv->videotestsrc, "pad-added",
 //@      (GCallback) cb_pad_added, self);
@@ -896,6 +890,7 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
 
       gst_element_sync_state_with_parent (capsfilter);
       gst_element_sync_state_with_parent (videorate);
+      gst_element_sync_state_with_parent (videoconvert);
       gst_element_sync_state_with_parent (freeze);
       gst_element_sync_state_with_parent (jpg_decoder);
       gst_element_sync_state_with_parent (source);
