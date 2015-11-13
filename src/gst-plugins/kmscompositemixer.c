@@ -813,18 +813,22 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
       GstPadTemplate *sink_pad_template;
 
 #if 0
-      source = gst_element_factory_make ("filesrc", "file-source");
+      source = gst_element_factory_make ("multifilesrc", "file-source");
       //set the location of the file to the argv[1]
       g_object_set (G_OBJECT (source), "location",
-          "/var/log/kurento-media-server/bg.jpg", NULL);
+          "/var/log/kurento-media-server/bg800x600.jpeg", NULL);
 #endif
+#if 0
       source = gst_element_factory_make ("filesrc", NULL);
-      if (!source) {
-        GST_ERROR ("File could not be created. Exiting.\n");
-        return -1;
-      }
       g_object_set (G_OBJECT (source), "location",
           "/var/log/kurento-media-server/bg800x600.jpeg", NULL);
+#endif
+#if 1
+      source = gst_element_factory_make ("souphttpsrc", NULL);
+      g_object_set (source, "location", "http://placeimg.com/800/600/any.jpg",
+          "is-live", TRUE, NULL);
+#endif
+
       filtercaps =
           gst_caps_new_simple ("image/jpeg",
           "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
@@ -840,16 +844,11 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
       sink_pad_template =
           gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS
           (self->priv->videomixer), "sink_%u");
-
       if (G_UNLIKELY (sink_pad_template == NULL)) {
         GST_ERROR_OBJECT (self, "Error taking a new pad from videomixer");
         break;
       }
-#if 0
-      source = gst_element_factory_make ("souphttpsrc", NULL);
-      g_object_set (source, "location", "http://lorempixel.com/800/600/sports/",
-          "is-live", TRUE, NULL);
-#endif
+
       freeze = gst_element_factory_make ("imagefreeze", NULL);
       videoconvert = gst_element_factory_make ("videoconvert", NULL);
       videorate = gst_element_factory_make ("videorate", NULL);
