@@ -2,13 +2,42 @@
 
 Copyright © 2013-2016 [Kurento]. Licensed under [LGPL v2.1 License].
 
-kms-elements
-============
+Kurento Utils for Bower
+=======================
 
-Elements for Kurento Media Server.
+The Kurento Utils project contains a set of reusable components that have been
+found useful during the development of the WebRTC applications with Kurento.
 
-The kms-elements project contains **elements** needed for the Kurento Media
-Server.
+The source code of this project can be cloned from the [GitHub repository].
+
+Installation instructions
+-------------------------
+
+Be sure to have installed [Node.js] and [Bower] in your system:
+
+```bash
+curl -sL https://deb.nodesource.com/setup | sudo bash -
+sudo apt-get install -y nodejs
+sudo npm install -g bower
+```
+
+To install the library, it's recommended to do that from the [Bower repository] :
+
+```bash
+bower install kurento-utils
+```
+
+Alternatively, you can download the code using git and install manually its
+dependencies:
+
+```bash
+git clone https://github.com/Kurento/kurento-utils-bower
+cd kurento-utils-bower
+npm install
+```
+
+Kurento
+=======
 
 What is Kurento
 ---------------
@@ -82,68 +111,6 @@ following guidelines
   before it being incorporated into the Kurento code-base. You must be ready to
   addressing all these kind of concerns before having your code approved.
 
-
-
-Build kms-elements
--------
-# install dependent packages.
-sudo apt-get install libboost-all-dev
-sudo apt-get install bison
-sudo apt-get install flex
-sudo apt-get install uuid-dev
-
-# build gstreamer-sctp-1.5
-git clone https://github.com/Kurento/usrsctp.git
-cd usrsctp/
-./bootstrap
-./configure --prefix=/usr
-make
-make install
-git clone https://github.com/Kurento/openwebrtc-gst-plugins.git
-cd openwebrtc-gst-plugins/
-./autogen.sh
-./configure --prefix=/usr
-make
-make install
-
-# you can ignore building gstreamer
-# for gstreamer 1.5.91
-wget https://launchpad.net/libnice/trunk/0.1.13/+download/libnice-0.1.13.tar.gz
-tar -xvf libnice-0.1.13.tar.gz
-cd libnice-0.1.13
-./configure --prefix=/usr
-make
-make install
-# build streamer 1.5.91
-wget http://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.5.91.tar.xz
-tar -xvf gstreamer-1.5.91.tar.xz 
-cd gstreamer-1.5.91
-./configure --prefix=/usr
-make
-make install
-
-# start to build kms-elements
-git clone https://github.com/Kurento/kms-elements.git
-cd kms-elements/src
-# checkout by the version tag which specified by kurento-media-server.(check the log for the version)
-git checkout 6.1.1
-cmake ..
-make
-
-# config kurento server to use the new build kms-elements plugins.
-vi /etc/default/kurento-media-server-6.0
-  (Add below 2 lines)
-  export KURENTO_MODULES_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/server
-  export GST_PLUGIN_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/gst-plugins
-
-# test using node.js server
-sudo service kurento-media-server-6.0 restart
-cd kurento-test-node/
-npm install
-node server.js 
-
-
-
 Support
 -------
 
@@ -167,6 +134,10 @@ Before asking for support, please read first the [Kurento Netiquette Guidelines]
 [LGPL v2.1 License]: http://www.gnu.org/licenses/lgpl-2.1.html
 [NUBOMEDIA]: http://www.nubomedia.eu
 [StackOverflow]: http://stackoverflow.com/search?q=kurento
+[GitHub repository]: https://github.com/kurento/kurento-utils-js
+[grunt]: http://gruntjs.com/
+[Node.js]: http://nodejs.org/
+[NPM repository]: https://www.npmjs.org/package/kurento-utils
 [Read-the-docs]: http://read-the-docs.readthedocs.org/
 [readthedocs.org]: http://kurento.readthedocs.org/
 [Open API specification]: http://kurento.github.io/doc-kurento/
