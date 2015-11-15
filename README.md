@@ -86,13 +86,15 @@ following guidelines
 
 Build kms-elements
 -------
-# install dependent packages.
+#### install dependent packages.
+```
 sudo apt-get install libboost-all-dev
 sudo apt-get install bison
 sudo apt-get install flex
 sudo apt-get install uuid-dev
-
-# build gstreamer-sctp-1.5
+```
+#### build gstreamer-sctp-1.5
+```
 git clone https://github.com/Kurento/usrsctp.git
 cd usrsctp/
 ./bootstrap
@@ -105,9 +107,10 @@ cd openwebrtc-gst-plugins/
 ./configure --prefix=/usr
 make
 make install
+```
 
-# you can ignore building gstreamer
-# for gstreamer 1.5.91
+##### build gstreamer 1.5.91 (you can ignore this if you already installed kurento media server 6.0)
+```
 wget https://launchpad.net/libnice/trunk/0.1.13/+download/libnice-0.1.13.tar.gz
 tar -xvf libnice-0.1.13.tar.gz
 cd libnice-0.1.13
@@ -121,28 +124,33 @@ cd gstreamer-1.5.91
 ./configure --prefix=/usr
 make
 make install
+```
 
-# start to build kms-elements
+### start to build kms-elements
+```
 git clone https://github.com/Kurento/kms-elements.git
 cd kms-elements/src
 # checkout by the version tag which specified by kurento-media-server.(check the log for the version)
 git checkout 6.1.1
 cmake ..
 make
+```
 
-# config kurento server to use the new build kms-elements plugins.
+### config kurento server to use the new build kms-elements plugins.
+```
 vi /etc/default/kurento-media-server-6.0
   (Add below 2 lines)
   export KURENTO_MODULES_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/server
   export GST_PLUGIN_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/gst-plugins
+```
 
-# test using node.js server
+### test using node.js server
+```
 sudo service kurento-media-server-6.0 restart
 cd kurento-test-node/
 npm install
 node server.js 
-
-
+```
 
 Support
 -------
