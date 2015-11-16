@@ -10,6 +10,76 @@ Elements for Kurento Media Server.
 The kms-elements project contains **elements** needed for the Kurento Media
 Server.
 
+
+Build kms-elements
+-------
+#### install dependent packages.
+```
+sudo apt-get install libboost-all-dev
+sudo apt-get install bison
+sudo apt-get install flex
+sudo apt-get install uuid-dev
+```
+#### build gstreamer-sctp-1.5
+```
+git clone https://github.com/Kurento/usrsctp.git
+cd usrsctp/
+./bootstrap
+./configure --prefix=/usr
+make
+make install
+git clone https://github.com/Kurento/openwebrtc-gst-plugins.git
+cd openwebrtc-gst-plugins/
+./autogen.sh
+./configure --prefix=/usr
+make
+make install
+```
+
+##### build gstreamer 1.5.91 (you can ignore this if you already installed kurento media server 6.0)
+```
+wget https://launchpad.net/libnice/trunk/0.1.13/+download/libnice-0.1.13.tar.gz
+tar -xvf libnice-0.1.13.tar.gz
+cd libnice-0.1.13
+./configure --prefix=/usr
+make
+make install
+# build streamer 1.5.91
+wget http://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.5.91.tar.xz
+tar -xvf gstreamer-1.5.91.tar.xz 
+cd gstreamer-1.5.91
+./configure --prefix=/usr
+make
+make install
+```
+
+### start to build kms-elements
+```
+git clone https://github.com/Kurento/kms-elements.git
+cd kms-elements/src
+# checkout by the version tag which specified by kurento-media-server.(check the log for the version)
+git checkout 6.1.1
+cmake ..
+make
+```
+
+### config kurento server to use the new build kms-elements plugins.
+```
+vi /etc/default/kurento-media-server-6.0
+  (Add below 2 lines)
+  export KURENTO_MODULES_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/server
+  export GST_PLUGIN_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/gst-plugins
+```
+
+### test using node.js server
+```
+sudo service kurento-media-server-6.0 restart
+cd kurento-test-node/
+npm install
+node server.js 
+```
+
+
 What is Kurento
 ---------------
 
@@ -82,75 +152,6 @@ following guidelines
   before it being incorporated into the Kurento code-base. You must be ready to
   addressing all these kind of concerns before having your code approved.
 
-
-
-Build kms-elements
--------
-#### install dependent packages.
-```
-sudo apt-get install libboost-all-dev
-sudo apt-get install bison
-sudo apt-get install flex
-sudo apt-get install uuid-dev
-```
-#### build gstreamer-sctp-1.5
-```
-git clone https://github.com/Kurento/usrsctp.git
-cd usrsctp/
-./bootstrap
-./configure --prefix=/usr
-make
-make install
-git clone https://github.com/Kurento/openwebrtc-gst-plugins.git
-cd openwebrtc-gst-plugins/
-./autogen.sh
-./configure --prefix=/usr
-make
-make install
-```
-
-##### build gstreamer 1.5.91 (you can ignore this if you already installed kurento media server 6.0)
-```
-wget https://launchpad.net/libnice/trunk/0.1.13/+download/libnice-0.1.13.tar.gz
-tar -xvf libnice-0.1.13.tar.gz
-cd libnice-0.1.13
-./configure --prefix=/usr
-make
-make install
-# build streamer 1.5.91
-wget http://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.5.91.tar.xz
-tar -xvf gstreamer-1.5.91.tar.xz 
-cd gstreamer-1.5.91
-./configure --prefix=/usr
-make
-make install
-```
-
-### start to build kms-elements
-```
-git clone https://github.com/Kurento/kms-elements.git
-cd kms-elements/src
-# checkout by the version tag which specified by kurento-media-server.(check the log for the version)
-git checkout 6.1.1
-cmake ..
-make
-```
-
-### config kurento server to use the new build kms-elements plugins.
-```
-vi /etc/default/kurento-media-server-6.0
-  (Add below 2 lines)
-  export KURENTO_MODULES_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/server
-  export GST_PLUGIN_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/gst-plugins
-```
-
-### test using node.js server
-```
-sudo service kurento-media-server-6.0 restart
-cd kurento-test-node/
-npm install
-node server.js 
-```
 
 Support
 -------
