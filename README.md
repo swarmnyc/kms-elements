@@ -19,6 +19,8 @@ sudo apt-get install libboost-all-dev
 sudo apt-get install bison
 sudo apt-get install flex
 sudo apt-get install uuid-dev
+sudo apt-get install kurento-media-server-6.0
+(It's ok on kurento-media-server with version 6.1.2~66.g7cd6144, not ok with version 6.1.1)
 ```
 #### build gstreamer-sctp-1.5
 ```
