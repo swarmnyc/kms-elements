@@ -21,12 +21,38 @@ CompositeImpl::CompositeImpl (const boost::property_tree::ptree &conf,
 {
 }
 
+std::string
+CompositeImpl::getBackgroundImage ()
+{
+  std::string backgroundImage;
+  gchar *ret;
+
+  g_object_get ( G_OBJECT (element), "background-image", &ret, NULL);
+
+  if (ret != NULL) {
+    backgroundImage = std::string (ret);
+    g_free (ret);
+  }
+
+  return backgroundImage;
+}
+
+void
+CompositeImpl::setBackgroundImage (const std::string &uri)
+{
+  GST_ERROR ("@rentao setBackgroundImage=%s", uri.c_str() );
+  g_object_set ( G_OBJECT (element), "background-image",
+                 uri.c_str(),
+                 NULL);
+}
+
 MediaObjectImpl *
 CompositeImplFactory::createObject (const boost::property_tree::ptree &conf,
                                     std::shared_ptr<MediaPipeline> mediaPipeline) const
 {
   return new CompositeImpl (conf, mediaPipeline);
 }
+
 
 CompositeImpl::StaticConstructor CompositeImpl::staticConstructor;
 

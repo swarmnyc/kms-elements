@@ -15,6 +15,29 @@
             }
           ]
         }
+      ,"methods": [
+        {
+          "name": "setBackgroundImage",
+          "doc": "Sets the background image of the episode meeting.",
+          "params": [
+            {
+              "name": "uri",
+              "doc": "The path of the backgroud image, can be http file or local file.",
+              "type": "String"
+            }
+          ]
+        },
+        {
+          "name": "getBackgroundImage",
+          "doc": "Gets the background image's uri",
+          "params": [],
+          "return": {
+            "doc": "The uri as a String",
+            "type": "String"
+          }
+        }
+
+      ]
     }
   ]
 }

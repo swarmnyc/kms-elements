@@ -53,6 +53,15 @@ GST_DEBUG_CATEGORY_STATIC (kms_composite_mixer_debug_category);
 #define AUDIO_SRC_PAD_NAME_COMP AUDIO_SRC_PAD_PREFIX_COMP "%u"
 #define VIDEO_SRC_PAD_NAME_COMP VIDEO_SRC_PAD_PREFIX_COMP "%u"
 
+#define DEFAULT_BACKGROUND_IMAGE NULL
+
+enum
+{
+  PROP_0,
+  PROP_BACKGROUND_IMAGE,
+  N_PROPERTIES
+};
+
 static GstStaticPadTemplate audio_sink_factory =
 GST_STATIC_PAD_TEMPLATE (AUDIO_SINK_PAD_NAME_COMP,
     GST_PAD_SINK,
@@ -93,6 +102,7 @@ struct _KmsCompositeMixerPrivate
   GRecMutex mutex;
   gint n_elems;
   gint output_width, output_height;
+  gchar *background_image;
 };
 
 /* class initialization */
@@ -455,8 +465,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -648,6 +658,7 @@ pad_removed_cb (GstElement * element, GstPad * pad, gpointer data)
   GST_DEBUG ("Removed pad %" GST_PTR_FORMAT, pad);
 }
 
+#if 0
 static int
 create_freezeimage_video (KmsCompositeMixer * self)
 {
@@ -755,6 +766,7 @@ create_freezeimage_video (KmsCompositeMixer * self)
   self->priv->videotestsrc = freeze;
   return 0;
 }
+#endif
 
 #if 0
 GstPad *sinkpad;
@@ -801,9 +813,6 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
     gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer, videorate_mixer,
         self->priv->mixer_video_agnostic, NULL);
 
-    if (0)
-      create_freezeimage_video (self);
-
     // url image -> imagefreeze --> videomixer
     while (self->priv->videotestsrc == NULL) {
       GstElement *source, *jpg_decoder;
@@ -824,9 +833,24 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
           "/var/log/kurento-media-server/bg800x600.jpeg", NULL);
 #endif
 #if 1
-      source = gst_element_factory_make ("souphttpsrc", NULL);
-      g_object_set (source, "location", "http://placeimg.com/800/600/any.jpg",
-          "is-live", TRUE, NULL);
+      if (self->priv->background_image == NULL) {
+        source = gst_element_factory_make ("souphttpsrc", NULL);
+        g_object_set (source, "location", "http://placeimg.com/800/600/any.jpg",
+            "is-live", TRUE, NULL);
+        GST_INFO ("@rentao using default background image");
+      } else if (self->priv->background_image[0] == '/') {
+        source = gst_element_factory_make ("filesrc", NULL);
+        g_object_set (G_OBJECT (source), "location",
+            self->priv->background_image, NULL);
+        GST_INFO ("@rentao using local file(%s) as background image",
+            self->priv->background_image);
+      } else {
+        source = gst_element_factory_make ("souphttpsrc", NULL);
+        g_object_set (source, "location", self->priv->background_image,
+            "is-live", TRUE, NULL);
+        GST_INFO ("@rentao using http file(%s) as background image",
+            self->priv->background_image);
+      }
 #endif
 
       filtercaps =
@@ -1005,6 +1029,52 @@ kms_composite_mixer_finalize (GObject * object)
 }
 
 static void
+kms_composite_mixer_get_property (GObject * object, guint property_id,
+    GValue * value, GParamSpec * pspec)
+{
+  KmsCompositeMixer *self = KMS_COMPOSITE_MIXER (object);
+
+  GST_ERROR ("@rentao kms_composite_get_property %d", property_id);
+
+  KMS_COMPOSITE_MIXER_LOCK (self);
+
+  switch (property_id) {
+    case PROP_BACKGROUND_IMAGE:
+    {
+      g_value_set_string (value, self->priv->background_image);
+      break;
+    }
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+
+  KMS_COMPOSITE_MIXER_UNLOCK (self);
+}
+
+static void
+kms_composite_mixer_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  KmsCompositeMixer *self = KMS_COMPOSITE_MIXER (object);
+
+  GST_ERROR_OBJECT (object, "@rentao kms_composite_set_property %d", prop_id);
+
+  KMS_COMPOSITE_MIXER_LOCK (self);
+  switch (prop_id) {
+    case PROP_BACKGROUND_IMAGE:
+      g_free (self->priv->background_image);
+      self->priv->background_image = g_value_dup_string (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+
+  KMS_COMPOSITE_MIXER_UNLOCK (self);
+}
+
+static void
 kms_composite_mixer_class_init (KmsCompositeMixerClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
@@ -1018,6 +1088,8 @@ kms_composite_mixer_class_init (KmsCompositeMixerClass * klass)
 
   gobject_class->dispose = GST_DEBUG_FUNCPTR (kms_composite_mixer_dispose);
   gobject_class->finalize = GST_DEBUG_FUNCPTR (kms_composite_mixer_finalize);
+  gobject_class->set_property = kms_composite_mixer_set_property;
+  gobject_class->get_property = kms_composite_mixer_get_property;
 
   base_hub_class->handle_port =
       GST_DEBUG_FUNCPTR (kms_composite_mixer_handle_port);
@@ -1032,6 +1104,13 @@ kms_composite_mixer_class_init (KmsCompositeMixerClass * klass)
       gst_static_pad_template_get (&audio_sink_factory));
   gst_element_class_add_pad_template (gstelement_class,
       gst_static_pad_template_get (&video_sink_factory));
+
+  g_object_class_install_property (gobject_class, PROP_BACKGROUND_IMAGE,
+      g_param_spec_string ("background-image",
+          "Background Image show at the episode",
+          "Background Image URI(http file or local file)",
+          DEFAULT_BACKGROUND_IMAGE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /* Registers a private structure for the instantiatable type */
   g_type_class_add_private (klass, sizeof (KmsCompositeMixerPrivate));
