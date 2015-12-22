@@ -53,6 +53,15 @@ GST_DEBUG_CATEGORY_STATIC (kms_composite_mixer_debug_category);
 #define AUDIO_SRC_PAD_NAME_COMP AUDIO_SRC_PAD_PREFIX_COMP "%u"
 #define VIDEO_SRC_PAD_NAME_COMP VIDEO_SRC_PAD_PREFIX_COMP "%u"
 
+#define DEFAULT_BACKGROUND_IMAGE NULL
+
+enum
+{
+  PROP_0,
+  PROP_BACKGROUND_IMAGE,
+  N_PROPERTIES
+};
+
 static GstStaticPadTemplate audio_sink_factory =
 GST_STATIC_PAD_TEMPLATE (AUDIO_SINK_PAD_NAME_COMP,
     GST_PAD_SINK,
@@ -93,6 +102,7 @@ struct _KmsCompositeMixerPrivate
   GRecMutex mutex;
   gint n_elems;
   gint output_width, output_height;
+  gchar *background_image;
 };
 
 /* class initialization */
@@ -160,6 +170,7 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
   gint width, height, top, left, counter, n_columns, n_rows;
   GList *l;
   GList *values = g_hash_table_get_values (self->priv->ports);
+  gint column_spacing;
 
   if (self->priv->n_elems <= 0) {
     return;
@@ -171,10 +182,14 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
   n_columns = (gint) ceil (sqrt (self->priv->n_elems));
   n_rows = (gint) ceil ((float) self->priv->n_elems / (float) n_columns);
 
+  n_columns = self->priv->n_elems;
+  n_rows = 1;
+
   GST_DEBUG_OBJECT (self, "columns %d rows %d", n_columns, n_rows);
 
   width = self->priv->output_width / n_columns;
-  height = self->priv->output_height / n_rows;
+  height = self->priv->output_height / n_columns;       //n_rows;
+  column_spacing = ceil (width / 10);
 
   for (l = values; l != NULL; l = l->next) {
     KmsCompositeMixerData *port_data = l->data;
@@ -183,6 +198,7 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
       continue;
     }
 
+#if 0
     filtercaps =
         gst_caps_new_simple ("video/x-raw",
         "width", G_TYPE_INT, width, "height", G_TYPE_INT, height,
@@ -192,6 +208,19 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
 
     top = ((counter / n_columns) * height);
     left = ((counter % n_columns) * width);
+#endif
+    filtercaps =
+        gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "AYUV",
+        "width", G_TYPE_INT, width - column_spacing * 2, "height", G_TYPE_INT,
+        height, "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
+        GST_TYPE_FRACTION, 1, 1, NULL);
+    g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
+    gst_caps_unref (filtercaps);
+
+    top = ((counter / n_columns) * height);
+    top += (self->priv->output_height - height) / 2;
+    left = ((counter % n_columns) * width);
+    left += column_spacing;
 
     g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top,
         "alpha", 1.0, NULL);
@@ -620,6 +649,100 @@ pad_removed_cb (GstElement * element, GstPad * pad, gpointer data)
   GST_DEBUG ("Removed pad %" GST_PTR_FORMAT, pad);
 }
 
+static int
+create_freezeimage_video (KmsCompositeMixer * self)
+{
+  GstElement *source, *jpg_decoder;
+  GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale;
+  GstCaps *filtercaps;
+  GstPad *pad;
+  GstPadTemplate *sink_pad_template;
+  gchar *bg_img;
+
+  if (self->priv->videomixer == NULL)
+    return -2;
+  bg_img = self->priv->background_image;
+  if (bg_img == NULL) {
+    source = gst_element_factory_make ("souphttpsrc", NULL);
+    g_object_set (source, "location", "http://placeimg.com/800/600/any.jpg",
+        "is-live", TRUE, NULL);
+    GST_INFO ("@rentao using default background image");
+  } else if (bg_img[0] == '/') {
+    if (!g_file_test (bg_img, G_FILE_TEST_EXISTS)) {
+      GST_ERROR ("@rentao file %s not found.", bg_img);
+      return -1;
+    }
+    source = gst_element_factory_make ("filesrc", NULL);
+    g_object_set (G_OBJECT (source), "location", bg_img, NULL);
+    GST_INFO ("@rentao using local file(%s) as background image", bg_img);
+  } else {
+    source = gst_element_factory_make ("souphttpsrc", NULL);
+    g_object_set (source, "location", bg_img, "is-live", TRUE, NULL);
+    GST_INFO ("@rentao using http file(%s) as background image", bg_img);
+  }
+
+  filtercaps =
+      gst_caps_new_simple ("image/jpeg",
+      "framerate", GST_TYPE_FRACTION, 1, 1, NULL);
+  g_object_set (G_OBJECT (source), "caps", filtercaps, NULL);
+  gst_caps_unref (filtercaps);
+
+  jpg_decoder = gst_element_factory_make ("jpegdec", NULL);
+  if (!jpg_decoder) {
+    GST_ERROR ("Jpg Decoder could not be created. Exiting.\n");
+    return -1;
+  }
+
+  sink_pad_template =
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS
+      (self->priv->videomixer), "sink_%u");
+  if (G_UNLIKELY (sink_pad_template == NULL)) {
+    GST_ERROR_OBJECT (self, "Error taking a new pad from videomixer");
+    return -1;
+  }
+
+  freeze = gst_element_factory_make ("imagefreeze", NULL);
+  videoconvert = gst_element_factory_make ("videoconvert", NULL);
+  videorate = gst_element_factory_make ("videorate", NULL);
+  videoscale = gst_element_factory_make ("videoscale", NULL);
+
+  capsfilter = gst_element_factory_make ("capsfilter", "capsfilter000");
+  filtercaps =
+      gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "AYUV",
+      "width", G_TYPE_INT, self->priv->output_width,
+      "height", G_TYPE_INT, self->priv->output_height,
+      "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
+  g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
+  gst_caps_unref (filtercaps);
+
+  gst_bin_add_many (GST_BIN (self), source, jpg_decoder, freeze,
+      videoconvert, videorate, videoscale, capsfilter, NULL);
+
+  gst_element_link_many (source, jpg_decoder, freeze, videoconvert,
+      videorate, videoscale, NULL);
+  gst_element_link (videoscale, capsfilter);
+
+  /*link capsfilter -> videomixer */
+  pad = gst_element_request_pad (self->priv->videomixer, sink_pad_template,
+      NULL, NULL);
+
+  gst_element_link_pads (capsfilter, NULL,
+      self->priv->videomixer, GST_OBJECT_NAME (pad));
+  g_object_set (pad, "xpos", 0, "ypos", 0, "alpha", 1.0, NULL);
+  g_object_unref (pad);
+
+  gst_element_sync_state_with_parent (capsfilter);
+  gst_element_sync_state_with_parent (videoscale);
+  gst_element_sync_state_with_parent (videorate);
+  gst_element_sync_state_with_parent (videoconvert);
+  gst_element_sync_state_with_parent (freeze);
+  gst_element_sync_state_with_parent (jpg_decoder);
+  gst_element_sync_state_with_parent (source);
+  self->priv->videotestsrc = source;
+  return 0;
+}
+
+
 static gint
 kms_composite_mixer_handle_port (KmsBaseHub * mixer,
     GstElement * mixer_end_point)
@@ -648,6 +771,12 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
     gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer,
         self->priv->mixer_video_agnostic, NULL);
 
+    if (self->priv->background_image != NULL) {
+      int ret = create_freezeimage_video (self);
+
+      GST_ERROR ("@rentao create_freezeimage_video return %d", ret);
+    }
+#if 0
     if (self->priv->videotestsrc == NULL) {
       GstElement *capsfilter;
       GstCaps *filtercaps;
@@ -695,6 +824,7 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
       gst_element_sync_state_with_parent (capsfilter);
       gst_element_sync_state_with_parent (self->priv->videotestsrc);
     }
+#endif
     gst_element_sync_state_with_parent (self->priv->videomixer);
     gst_element_sync_state_with_parent (self->priv->mixer_video_agnostic);
 
@@ -752,6 +882,58 @@ kms_composite_mixer_finalize (GObject * object)
 }
 
 static void
+kms_composite_mixer_get_property (GObject * object, guint property_id,
+    GValue * value, GParamSpec * pspec)
+{
+  KmsCompositeMixer *self = KMS_COMPOSITE_MIXER (object);
+
+  GST_ERROR ("@rentao kms_composite_get_property %d", property_id);
+
+  KMS_COMPOSITE_MIXER_LOCK (self);
+
+  switch (property_id) {
+    case PROP_BACKGROUND_IMAGE:
+    {
+      g_value_set_string (value, self->priv->background_image);
+      break;
+    }
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+      break;
+  }
+
+  KMS_COMPOSITE_MIXER_UNLOCK (self);
+}
+
+static void
+kms_composite_mixer_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  KmsCompositeMixer *self = KMS_COMPOSITE_MIXER (object);
+
+  GST_ERROR_OBJECT (object, "@rentao kms_composite_set_property %d", prop_id);
+
+  KMS_COMPOSITE_MIXER_LOCK (self);
+  switch (prop_id) {
+    case PROP_BACKGROUND_IMAGE:
+      g_free (self->priv->background_image);
+      self->priv->background_image = g_value_dup_string (value);
+      if (self->priv->videotestsrc == NULL) {
+        int ret = create_freezeimage_video (self);
+
+        GST_ERROR_OBJECT (object, "@rentao create_freezeimage_video return %d",
+            ret);
+      }
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+
+  KMS_COMPOSITE_MIXER_UNLOCK (self);
+}
+
+static void
 kms_composite_mixer_class_init (KmsCompositeMixerClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
@@ -764,6 +946,8 @@ kms_composite_mixer_class_init (KmsCompositeMixerClass * klass)
 
   gobject_class->dispose = GST_DEBUG_FUNCPTR (kms_composite_mixer_dispose);
   gobject_class->finalize = GST_DEBUG_FUNCPTR (kms_composite_mixer_finalize);
+  gobject_class->set_property = kms_composite_mixer_set_property;
+  gobject_class->get_property = kms_composite_mixer_get_property;
 
   base_hub_class->handle_port =
       GST_DEBUG_FUNCPTR (kms_composite_mixer_handle_port);
@@ -778,6 +962,13 @@ kms_composite_mixer_class_init (KmsCompositeMixerClass * klass)
       gst_static_pad_template_get (&audio_sink_factory));
   gst_element_class_add_pad_template (gstelement_class,
       gst_static_pad_template_get (&video_sink_factory));
+
+  g_object_class_install_property (gobject_class, PROP_BACKGROUND_IMAGE,
+      g_param_spec_string ("background-image",
+          "Background Image show at the episode",
+          "Background Image URI(http file or local file)",
+          DEFAULT_BACKGROUND_IMAGE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /* Registers a private structure for the instantiatable type */
   g_type_class_add_private (klass, sizeof (KmsCompositeMixerPrivate));
