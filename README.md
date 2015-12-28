@@ -28,6 +28,9 @@ sudo apt-get install kurento-media-server-6.0-dev
 # for kurento-element to commit to git.
 sudo apt-get install indent
 sudo apt-get install astyle
+# for node server.
+sudo apt-get install npm
+sodo apt-get install nodejs-legacy
 ```
 
 #### build gstreamer-sctp-1.5
@@ -53,6 +56,10 @@ cd kms-elements/src
 # checkout by the version tag which specified by kurento-media-server.(check the log for the version)
 cmake ..
 make
+
+# generate the js code used by npm[node.js]
+cmake .. -DGENERATE_JS_CLIENT_PROJECT=TRUE
+cp -r ./js/ <where_your_application_server>/node_modules/kurento-client/node_modules/kurento-client-elements/
 ```
 
 ### config kurento server to use the new build kms-elements plugins.
@@ -66,7 +73,10 @@ vi /etc/default/kurento-media-server-6.0
 ### test using node.js server
 ```
 sudo service kurento-media-server-6.0 restart
-cd kurento-test-node/
+# Suppose we are using the kurento-one2many-call to test:
+git clone https://github.com/Kurento/kurento-tutorial-node
+cd kurento-tutorial-node/kurento-one2many-call/
+# Copy the js module from kms-elements/src/js/ to here, see above.
 npm install
 node server.js 
 ```
