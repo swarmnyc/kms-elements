@@ -2,96 +2,25 @@
 
 Copyright © 2013-2016 [Kurento]. Licensed under [LGPL v2.1 License].
 
-kms-elements
-============
+kurento-one2many-call
+=====================
 
-Elements for Kurento Media Server.
+Kurento Java Tutorial: WebRTC one to many video call.
 
-The kms-elements project contains **elements** needed for the Kurento Media
-Server.
+Running this tutorial
+---------------------
 
-
-Build kms-elements
--------
-#### install dependent packages.
-```
-sudo apt-get install libboost-all-dev
-sudo apt-get install bison
-sudo apt-get install flex
-sudo apt-get install uuid-dev
-sudo apt-get install build-essential
-sudo apt-get install libtool
-sudo apt-get install autotools-dev 
-sudo apt-get install automake
-sudo apt-get install libsoup2.4-dev
-sudo apt-get install kurento-media-server-6.0-dev 
-# for kurento-element to commit to git.
-sudo apt-get install indent
-sudo apt-get install astyle
-# for node server.
-sudo apt-get install npm
-sodo apt-get install nodejs-legacy
-```
-
-#### build gstreamer-sctp-1.5
-```
-git clone https://github.com/Kurento/usrsctp.git
-cd usrsctp/
-./bootstrap
-./configure --prefix=/usr
-make
-sudo make install
-git clone https://github.com/Kurento/openwebrtc-gst-plugins.git
-cd openwebrtc-gst-plugins/
-./autogen.sh
-./configure --prefix=/usr
-make
-sudo make install
-```
-
-### start to build kms-elements
-```
-git clone https://github.com/swarmnyc/kms-elements.git -b swarm_composite_6.2
-cd kms-elements/src
-# checkout by the version tag which specified by kurento-media-server.(check the log for the version)
-cmake ..
-make
-
-# generate the js code used by npm[node.js]
-cmake .. -DGENERATE_JS_CLIENT_PROJECT=TRUE
-cp -r ./js/ <where_your_application_server>/node_modules/kurento-client/node_modules/kurento-client-elements/
-```
-
-### config kurento server to use the new build kms-elements plugins.
-```
-vi /etc/default/kurento-media-server-6.0
-  (Add below 2 lines)
-  export KURENTO_MODULES_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/server
-  export GST_PLUGIN_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/gst-plugins
-```
-
-### test using node.js server
-```
-sudo service kurento-media-server-6.0 restart
-
-cd ../kurento-test-nodejs/
-npm install
-mv ./node_modules/kurento-client/node_modules/kurento-client-elements/ ./node_modules/kurento-client/node_modules/kurento-client-elements_origin/
-cp -r ../src/js/ ./node_modules/kurento-client/node_modules/kurento-client-elements/
-node server.js 
-```
-
-
+In order to run this tutorial, please read the following [instructions].
 
 What is Kurento
 ---------------
 
-Kurento is an open source software project providing a platform suitable 
+Kurento is an open source software project providing a platform suitable
 for creating modular applications with advanced real-time communication
 capabilities. For knowing more about Kurento, please visit the Kurento
 project website: http://www.kurento.org.
 
-Kurento is part of [FIWARE]. For further information on the relationship of 
+Kurento is part of [FIWARE]. For further information on the relationship of
 FIWARE and Kurento check the [Kurento FIWARE Catalog Entry]
 
 Kurento is part of the [NUBOMEDIA] research initiative.
@@ -182,3 +111,4 @@ Before asking for support, please read first the [Kurento Netiquette Guidelines]
 [readthedocs.org]: http://kurento.readthedocs.org/
 [Open API specification]: http://kurento.github.io/doc-kurento/
 [apiary.io]: http://docs.streamoriented.apiary.io/
+[instructions]: http://www.kurento.org/docs/current/tutorials/node/tutorial-one2many.html
