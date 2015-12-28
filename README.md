@@ -10,6 +10,69 @@ Elements for Kurento Media Server.
 The kms-elements project contains **elements** needed for the Kurento Media
 Server.
 
+
+Build kms-elements
+-------
+#### install dependent packages.
+```
+sudo apt-get install libboost-all-dev
+sudo apt-get install bison
+sudo apt-get install flex
+sudo apt-get install uuid-dev
+sudo apt-get install build-essential
+sudo apt-get install libtool
+sudo apt-get install autotools-dev 
+sudo apt-get install automake
+sudo apt-get install libsoup2.4-dev
+sudo apt-get install kurento-media-server-6.0-dev 
+# for kurento-element to commit to git.
+sudo apt-get install indent
+sudo apt-get install astyle
+```
+
+#### build gstreamer-sctp-1.5
+```
+git clone https://github.com/Kurento/usrsctp.git
+cd usrsctp/
+./bootstrap
+./configure --prefix=/usr
+make
+sudo make install
+git clone https://github.com/Kurento/openwebrtc-gst-plugins.git
+cd openwebrtc-gst-plugins/
+./autogen.sh
+./configure --prefix=/usr
+make
+sudo make install
+```
+
+### start to build kms-elements
+```
+git clone https://github.com/swarmnyc/kms-elements.git -b swarm_composite_6.2
+cd kms-elements/src
+# checkout by the version tag which specified by kurento-media-server.(check the log for the version)
+cmake ..
+make
+```
+
+### config kurento server to use the new build kms-elements plugins.
+```
+vi /etc/default/kurento-media-server-6.0
+  (Add below 2 lines)
+  export KURENTO_MODULES_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/server
+  export GST_PLUGIN_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/gst-plugins
+```
+
+### test using node.js server
+```
+sudo service kurento-media-server-6.0 restart
+cd kurento-test-node/
+npm install
+node server.js 
+```
+
+
+
 What is Kurento
 ---------------
 
