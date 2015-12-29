@@ -186,7 +186,7 @@ function startPresenter(sessionId, ws, sdpOffer, callback) {
                                         if (error) {
                                                 return callback(error);
                                         }
-					_composite.setBackgroundImage("http://placeimg.com/800/600/any.jpg");
+					_composite.setBackgroundImage("/etc/kurento/bg.jpg");//("http://placeimg.com/800/600/any.jpg");
                                         presenter.composite = _composite;
                                         addPresenter(sessionId, ws, sdpOffer, callback);
                                 });
@@ -296,6 +296,34 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
 
 
 function startViewer(sessionId, ws, sdpOffer, callback) {
+    if (presenter.pipeline === null) {
+        getKurentoClient(function(error, kurentoClient) {
+                if (presenter.pipeline === null) {
+                        kurentoClient.create('MediaPipeline', function(error, _pipeline) {
+                                if (error) {
+                                        return callback(error);
+                                }
+                                presenter.pipeline = _pipeline;
+
+                                presenter.pipeline.create('Composite', function(error, _composite) {
+                                        if (error) {
+                                                return callback(error);
+                                        }
+					_composite.setBackgroundImage("/etc/kurento/bg.jpg");//("http://placeimg.com/800/600/any.jpg");
+                                        presenter.composite = _composite;
+                                        addViewer(sessionId, ws, sdpOffer, callback);
+                                });
+                        });
+		}
+	});
+//	stop(sessionId);
+//	return callback(noPresenterMessage);
+    } else {
+        addViewer(sessionId, ws, sdpOffer, callback);
+    }
+}
+
+function addViewer(sessionId, ws, sdpOffer, callback) {
     clearCandidatesQueue(sessionId);
 
     if (presenter === null) {
