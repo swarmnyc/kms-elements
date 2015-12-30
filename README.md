@@ -15,22 +15,20 @@ Build kms-elements
 -------
 #### install dependent packages.
 ```
-sudo apt-get install libboost-all-dev
-sudo apt-get install bison
-sudo apt-get install flex
-sudo apt-get install uuid-dev
-sudo apt-get install build-essential
-sudo apt-get install libtool
-sudo apt-get install autotools-dev 
-sudo apt-get install automake
-sudo apt-get install libsoup2.4-dev
-sudo apt-get install kurento-media-server-6.0-dev 
+# install kurento-media-server-dev
+echo "deb http://ubuntu.kurento.org trusty-dev kms6" | sudo tee /etc/apt/sources.list.d/kurento-dev.list
+wget -O - http://ubuntu.kurento.org/kurento.gpg.key | sudo apt-key add -
+sudo apt-get update
+sudo apt-get install kurento-media-server-6.0-dev
+
+sudo apt-get install libboost-all-dev bison flex uuid-dev libsoup2.4-dev build-essential libtool autotools-dev  automake indent astyle npm nodejs-legacy git
+
+# build tools
+#   build-essential libtool autotools-dev automake
 # for kurento-element to commit to git.
-sudo apt-get install indent
-sudo apt-get install astyle
+#   indent astyle
 # for node server.
-sudo apt-get install npm
-sodo apt-get install nodejs-legacy
+#   npm nodejs-legacy
 ```
 
 #### build gstreamer-sctp-1.5
@@ -66,8 +64,8 @@ cp -r ./js/ <where_your_application_server>/node_modules/kurento-client/node_mod
 ```
 vi /etc/default/kurento-media-server-6.0
   (Add below 2 lines)
-  export KURENTO_MODULES_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/server
-  export GST_PLUGIN_PATH=/home/vagrant/swarmnyc/kms-elements/src/src/gst-plugins
+  export KURENTO_MODULES_PATH=/home/vagrant/kms-elements/src/src/server
+  export GST_PLUGIN_PATH=/home/vagrant/kms-elements/src/src/gst-plugins
 ```
 
 ### test using node.js server
@@ -76,8 +74,12 @@ sudo service kurento-media-server-6.0 restart
 
 cd ../kurento-test-nodejs/
 npm install
+# copy new version js file to current appplication server's node_modules.
 mv ./node_modules/kurento-client/node_modules/kurento-client-elements/ ./node_modules/kurento-client/node_modules/kurento-client-elements_origin/
 cp -r ../src/js/ ./node_modules/kurento-client/node_modules/kurento-client-elements/
+# build a local background image.
+curl http://placeimg.com/800/600/any.jpg > bg.jpg
+sudo mv bg.jpg /etc/kurento/
 node server.js 
 ```
 
