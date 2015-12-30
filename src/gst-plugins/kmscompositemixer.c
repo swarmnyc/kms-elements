@@ -791,7 +791,7 @@ create_freezeimage_video (KmsCompositeMixer * self)
   gst_element_sync_state_with_parent (freeze);
   gst_element_sync_state_with_parent (jpg_decoder);
   gst_element_sync_state_with_parent (source);
-  self->priv->videotestsrc = source;
+//  self->priv->videotestsrc = source;
   return 0;
 }
 
@@ -829,7 +829,7 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
       GST_ERROR ("@rentao create_freezeimage_video return %d", ret);
     }
 #endif
-#if 0
+#if 1
     if (self->priv->videotestsrc == NULL) {
       GstElement *capsfilter;
       GstCaps *filtercaps;
