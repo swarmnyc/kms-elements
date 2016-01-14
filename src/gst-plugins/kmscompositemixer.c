@@ -54,11 +54,13 @@ GST_DEBUG_CATEGORY_STATIC (kms_composite_mixer_debug_category);
 #define VIDEO_SRC_PAD_NAME_COMP VIDEO_SRC_PAD_PREFIX_COMP "%u"
 
 #define DEFAULT_BACKGROUND_IMAGE NULL
+#define DEFAULT_STYLE NULL
 
 enum
 {
   PROP_0,
   PROP_BACKGROUND_IMAGE,
+  PROP_STYLE,
   N_PROPERTIES
 };
 
@@ -103,6 +105,10 @@ struct _KmsCompositeMixerPrivate
   gint n_elems;
   gint output_width, output_height;
   gchar *background_image;
+  gchar *style;
+  GstElement *source, *jpg_decoder;
+  GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale;
+  GstCaps *filtercaps;
 };
 
 /* class initialization */
@@ -711,10 +717,72 @@ create_freezeimage_video (KmsCompositeMixer * self)
   GstPad *pad;
   GstPadTemplate *sink_pad_template;
   gchar *bg_img;
+  GstStateChangeReturn ret;
+  GstElement *textoverlay;
+
+  // textoverlay source code:
+  //   https://code.google.com/p/ossbuild/source/browse/trunk/Main/GStreamer/Source/gst-plugins-base/ext/pango/gsttextoverlay.c?spec=svn1012&r=1007
+  textoverlay = gst_element_factory_make ("textoverlay", NULL);
+  g_object_set (G_OBJECT (textoverlay), "text", "BACKGROUND2", NULL);
+  g_object_set (G_OBJECT (textoverlay), "valignment", 2, "halignment", "left",
+      "alpha", 0.0, NULL);
 
   if (self->priv->videomixer == NULL)
     return -2;
   bg_img = self->priv->background_image;
+
+  // remove the original elements.
+  if (self->priv->source != NULL) {
+//    GstEvent *event;
+//    GstPad *pad;
+
+    GST_INFO ("@rentao unlink many");
+//    ret = gst_element_set_state (self->priv->freeze, GST_STATE_PAUSED);
+//    GST_INFO("@rentao gst_element_set_state return %d", ret);
+    ret = gst_element_set_state (self->priv->freeze, GST_STATE_READY);
+    GST_INFO ("@rentao gst_element_set_state return %d", ret);
+    gst_element_unlink_many (self->priv->source, self->priv->jpg_decoder,
+        self->priv->freeze, self->priv->videoconvert, self->priv->videorate,
+        self->priv->videoscale, self->priv->capsfilter, NULL);
+
+//    pad = gst_element_get_static_pad (self->priv->freeze, "sink");
+////    if (!GST_OBJECT_FLAG_IS_SET (pad, GST_PAD_FLAG_EOS)) {
+//      GST_INFO("send eos ");
+//      
+//      if (GST_PAD_IS_FLUSHING (pad)) {
+//        gst_pad_send_event (pad, gst_event_new_flush_stop (FALSE));
+//      }
+//      
+//      event = gst_event_new_eos ();
+//      gst_pad_send_event (pad, event);
+////    }
+//    return 0;
+
+    GST_INFO ("remove many");
+    gst_bin_remove_many (GST_BIN (self), self->priv->source,
+        self->priv->jpg_decoder, self->priv->freeze, self->priv->videoconvert,
+        self->priv->videorate, self->priv->videoscale, self->priv->capsfilter,
+        NULL);
+
+    GST_INFO ("gst_element_set_state many");
+    gst_element_set_state (self->priv->source, GST_STATE_NULL);
+    gst_element_set_state (self->priv->jpg_decoder, GST_STATE_NULL);
+    gst_element_set_state (self->priv->freeze, GST_STATE_NULL);
+    gst_element_set_state (self->priv->videoconvert, GST_STATE_NULL);
+    gst_element_set_state (self->priv->videorate, GST_STATE_NULL);
+    gst_element_set_state (self->priv->videoscale, GST_STATE_NULL);
+    gst_element_set_state (self->priv->capsfilter, GST_STATE_NULL);
+
+    GST_INFO ("g_object_unref many");
+    g_object_unref (self->priv->source);
+    g_object_unref (self->priv->jpg_decoder);
+    g_object_unref (self->priv->freeze);
+    g_object_unref (self->priv->videoconvert);
+    g_object_unref (self->priv->videorate);
+    g_object_unref (self->priv->videoscale);
+    g_object_unref (self->priv->capsfilter);
+  }
+  // create the elements.
   if (bg_img == NULL) {
     source = gst_element_factory_make ("souphttpsrc", NULL);
     g_object_set (source, "location", "http://placeimg.com/800/600/any.jpg",
@@ -734,8 +802,7 @@ create_freezeimage_video (KmsCompositeMixer * self)
     GST_INFO ("@rentao using http file(%s) as background image", bg_img);
   }
 
-  filtercaps =
-      gst_caps_new_simple ("image/jpeg",
+  filtercaps = gst_caps_new_simple ("image/jpeg",
       "framerate", GST_TYPE_FRACTION, 1, 1, NULL);
   g_object_set (G_OBJECT (source), "caps", filtercaps, NULL);
   gst_caps_unref (filtercaps);
@@ -759,7 +826,7 @@ create_freezeimage_video (KmsCompositeMixer * self)
   videorate = gst_element_factory_make ("videorate", NULL);
   videoscale = gst_element_factory_make ("videoscale", NULL);
 
-  capsfilter = gst_element_factory_make ("capsfilter", "capsfilter000");
+  capsfilter = gst_element_factory_make ("capsfilter", NULL);
   filtercaps =
       gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "AYUV",
       "width", G_TYPE_INT, self->priv->output_width,
@@ -768,10 +835,10 @@ create_freezeimage_video (KmsCompositeMixer * self)
   g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
   gst_caps_unref (filtercaps);
 
-  gst_bin_add_many (GST_BIN (self), source, jpg_decoder, freeze,
+  gst_bin_add_many (GST_BIN (self), source, jpg_decoder, freeze, textoverlay,
       videoconvert, videorate, videoscale, capsfilter, NULL);
 
-  gst_element_link_many (source, jpg_decoder, freeze, videoconvert,
+  gst_element_link_many (source, jpg_decoder, freeze, textoverlay, videoconvert,
       videorate, videoscale, NULL);
   gst_element_link (videoscale, capsfilter);
 
@@ -791,8 +858,121 @@ create_freezeimage_video (KmsCompositeMixer * self)
   gst_element_sync_state_with_parent (freeze);
   gst_element_sync_state_with_parent (jpg_decoder);
   gst_element_sync_state_with_parent (source);
-//  self->priv->videotestsrc = source;
+  gst_element_sync_state_with_parent (textoverlay);
+  self->priv->capsfilter = capsfilter;
+  self->priv->videoscale = videoscale;
+  self->priv->videorate = videorate;
+  self->priv->videoconvert = videoconvert;
+  self->priv->freeze = freeze;
+  self->priv->jpg_decoder = jpg_decoder;
+  self->priv->source = source;
+
+//  ret = gst_element_set_state (self->priv->freeze, GST_STATE_READY);
+//  GST_INFO("@rentao gst_element_set_state return %d", ret);
+//  ret = gst_element_set_state (self->priv->freeze, GST_STATE_PLAYING);
+//  GST_INFO("@rentao gst_element_set_state return %d", ret);
+//  ret = gst_element_set_state (self->priv->source, GST_STATE_PLAYING);
+//  GST_INFO("@rentao gst_element_set_state return %d", ret);
+
   return 0;
+}
+
+static gboolean
+kms_composite_parse_style (KmsCompositeMixer * self)
+{
+  GRegex *regex;
+  GMatchInfo *match_info;
+  gchar *foundation, *cid_str, *prio_str, *addr, *port_str, *type_str;
+  gboolean ret = TRUE;
+  gchar *str = self->priv->style;
+  GstElement *textoverlay;
+
+  textoverlay = gst_element_factory_make ("textoverlay", NULL);
+  if (textoverlay == NULL) {
+    GST_INFO ("@rentao !!!NOT SUPPORT textoverlay!!!");
+  }
+
+  regex = g_regex_new ("^(candidate:)?(?<foundation>[0-9]+) (?<cid>[0-9]+)"
+      " (?<transport>(udp|UDP|tcp|TCP)) (?<prio>[0-9]+) (?<addr>[0-9.:a-zA-Z]+)"
+      " (?<port>[0-9]+) typ (?<type>(host|srflx|prflx|relay))"
+      "( raddr [0-9.:a-zA-Z]+ rport [0-9]+)?( tcptype (active|passive|so))?( generation [0-9]+)?$",
+      0, 0, NULL);
+  g_regex_match (regex, str, 0, &match_info);
+
+  if (!g_match_info_matches (match_info)) {
+    GST_WARNING ("Cannot create nice candidate from '%s'", str);
+    ret = FALSE;
+    goto end;
+  }
+
+  foundation = g_match_info_fetch_named (match_info, "foundation");
+  cid_str = g_match_info_fetch_named (match_info, "cid");
+  prio_str = g_match_info_fetch_named (match_info, "prio");
+  addr = g_match_info_fetch_named (match_info, "addr");
+  port_str = g_match_info_fetch_named (match_info, "port");
+  type_str = g_match_info_fetch_named (match_info, "type");
+
+  if (foundation == NULL) {
+    GST_WARNING ("Candidate: cannot get 'foundation'");
+    ret = FALSE;
+    goto free;
+  }
+  if (cid_str == NULL) {
+    GST_WARNING ("Candidate: cannot get 'cid'");
+    ret = FALSE;
+    goto free;
+  }
+  if (prio_str == NULL) {
+    GST_WARNING ("Candidate: cannot get 'prio'");
+    ret = FALSE;
+    goto free;
+  }
+  if (addr == NULL) {
+    GST_WARNING ("Candidate: cannot get 'addr'");
+    ret = FALSE;
+    goto free;
+  }
+  if (port_str == NULL) {
+    GST_WARNING ("Candidate: cannot get 'port'");
+    ret = FALSE;
+    goto free;
+  }
+  if (type_str == NULL) {
+    GST_WARNING ("Candidate: cannot get 'type'");
+    ret = FALSE;
+    goto free;
+  }
+//  *cand = nice_candidate_new (type);
+//  (*cand)->component_id = g_ascii_strtoll (cid_str, NULL, 10);
+//  (*cand)->priority = g_ascii_strtoll (prio_str, NULL, 10);
+//  g_strlcpy ((*cand)->foundation, foundation, NICE_CANDIDATE_MAX_FOUNDATION);
+//
+//  if (!nice_address_set_from_string (&(*cand)->addr, addr)) {
+//    GST_WARNING ("Cannot set address '%s' to candidate", addr);
+//    nice_candidate_free (*cand);
+//    *cand = NULL;
+//    ret = FALSE;
+//    goto free;
+//  }
+//  nice_address_set_port (&(*cand)->addr, g_ascii_strtoll (port_str, NULL, 10));
+
+  GST_INFO
+      ("@rentao foundation=%s, cid_str=%s, prio_str=%s, addr=%s, port_str=%s, type_str=%s",
+      foundation, cid_str, prio_str, addr, port_str, type_str);
+
+free:
+  g_free (addr);
+  g_free (foundation);
+  g_free (cid_str);
+  g_free (prio_str);
+  g_free (port_str);
+  g_free (type_str);
+
+end:
+  g_match_info_free (match_info);
+  g_regex_unref (regex);
+
+  return ret;
 }
 
 static gint
@@ -951,6 +1131,12 @@ kms_composite_mixer_get_property (GObject * object, guint property_id,
       g_value_set_string (value, self->priv->background_image);
       break;
     }
+    case PROP_STYLE:
+    {
+      g_value_set_string (value, self->priv->style);
+      GST_INFO ("@rentao getStyle(%s)", self->priv->style);
+      break;
+    }
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -963,6 +1149,7 @@ static void
 kms_composite_mixer_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
+  int ret;
   KmsCompositeMixer *self = KMS_COMPOSITE_MIXER (object);
 
   GST_ERROR_OBJECT (object, "@rentao kms_composite_set_property %d", prop_id);
@@ -972,12 +1159,16 @@ kms_composite_mixer_set_property (GObject * object, guint prop_id,
     case PROP_BACKGROUND_IMAGE:
       g_free (self->priv->background_image);
       self->priv->background_image = g_value_dup_string (value);
-      if (self->priv->videotestsrc == NULL) {
-        int ret = create_freezeimage_video (self);
+      ret = create_freezeimage_video (self);
 
-        GST_ERROR_OBJECT (object, "@rentao create_freezeimage_video return %d",
-            ret);
-      }
+      GST_ERROR_OBJECT (object, "@rentao create_freezeimage_video return %d",
+          ret);
+      break;
+    case PROP_STYLE:
+      g_free (self->priv->style);
+      self->priv->style = g_value_dup_string (value);
+      kms_composite_parse_style (self);
+      GST_INFO ("@rentao setStyle(%s)", self->priv->style);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1023,6 +1214,12 @@ kms_composite_mixer_class_init (KmsCompositeMixerClass * klass)
           "Background Image URI(http file or local file)",
           DEFAULT_BACKGROUND_IMAGE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_STYLE,
+      g_param_spec_string ("style",
+          "The showing style at the episode, like name, message, frame",
+          "Style description(schema like ice candidate)",
+          DEFAULT_STYLE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /* Registers a private structure for the instantiatable type */
   g_type_class_add_private (klass, sizeof (KmsCompositeMixerPrivate));

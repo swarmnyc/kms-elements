@@ -26,8 +26,8 @@
               "type": "String"
             }
           ]
-        },
-        {
+        }
+        ,{
           "name": "getBackgroundImage",
           "doc": "Gets the background image's uri",
           "params": [],
@@ -36,7 +36,26 @@
             "type": "String"
           }
         }
-
+        ,{
+          "name": "setStyle",
+          "doc": "Sets the style of the composite video, e.g. message, name, frame position, etc.",
+          "params": [
+            {
+              "name": "style",
+              "doc": "The style description, like:",
+              "type": "String"
+            }
+          ]
+        }
+        ,{
+          "name": "getStyle",
+          "doc": "Gets the style of the composite video, e.g. message, name, frame position, etc.",
+          "params": [],
+          "return": {
+            "doc": "The style descrition, like:",
+            "type": "String"
+          }
+        }
       ]
     }
   ]

@@ -46,6 +46,29 @@ CompositeImpl::setBackgroundImage (const std::string &uri)
                  NULL);
 }
 
+std::string
+CompositeImpl::getStyle ()
+{
+  std::string style;
+  gchar *ret;
+
+  g_object_get ( G_OBJECT (element), "style", &ret, NULL);
+
+  if (ret != NULL) {
+    style = std::string (ret);
+    g_free (ret);
+  }
+
+  return style;
+}
+
+void
+CompositeImpl::setStyle (const std::string &style)
+{
+  g_object_set ( G_OBJECT (element), "style", style.c_str(), NULL);
+}
+
+
 MediaObjectImpl *
 CompositeImplFactory::createObject (const boost::property_tree::ptree &conf,
                                     std::shared_ptr<MediaPipeline> mediaPipeline) const

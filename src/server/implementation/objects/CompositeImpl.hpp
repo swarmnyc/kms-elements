@@ -26,6 +26,8 @@ public:
 
   std::string getBackgroundImage ();
   void setBackgroundImage (const std::string &uri);
+  std::string getStyle ();
+  void setStyle (const std::string &style);
 
   /* Next methods are automatically implemented by code generator */
   virtual bool connect (const std::string &eventType,
