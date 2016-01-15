@@ -1,0 +1,35 @@
+{
+  "remoteClasses": [
+    {
+      "name": "TextOverlay",
+      "extends": "MediaElement",
+      "doc": "A :rom:cls:`Hub` that mixes the :rom:attr:`MediaType.AUDIO` stream of its connected sources and constructs a grid with the :rom:attr:`MediaType.VIDEO` streams of its connected sources into its sink",
+      "constructor": {
+        "doc": "Create for the given textoverlay",
+        "params": [
+          {
+            "name": "mediaPipeline",
+            "doc": "the :rom:cls:`MediaPipeline` to which the dispatcher belongs",
+            "type": "MediaPipeline"
+          }
+        ]
+      },
+
+      "methods": [
+        {
+          "name": "setText",
+          "doc": "Sets text that will show on the video.",
+          "params": [
+            {
+              "name": "text",
+              "doc": "The text to show.",
+              "type": "String"
+            }
+          ]
+        }
+      ]
+
+    }
+  ]
+}
+

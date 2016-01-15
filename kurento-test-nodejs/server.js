@@ -253,7 +253,16 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
 				return calback(error);
 			}
 			presenter.hubPorts[sessionId] = _hubPort;
-			webRtcEndpoint.connect(_hubPort);
+
+            presenter.pipeline.create('TextOverlay', function(error, _textoverlay) {
+                if (error) {
+                    return callback(error);
+                }
+                console.log("TextOverlay:" + JSON.stringify(_textoverlay));
+                webRtcEndpoint.connect(_textoverlay);
+                _textoverlay.connect(_hubPort);
+                //webRtcEndpoint.connect(_hubPort);
+            });
 		});
 
 		if (candidatesQueue[sessionId]) {
@@ -305,6 +314,12 @@ function startViewer(sessionId, ws, sdpOffer, callback) {
 					}
 					presenter.pipeline = _pipeline;
 
+                    //presenter.pipeline.create('GStreamerFilter', {command:"textoverlay"}, function(error, _gstoverlay) {
+                    //    if (error) {
+                    //        return callback(error);
+                    //    }
+                    //});
+
 					presenter.pipeline.create('Composite', function(error, _composite) {
 						if (error) {
 							return callback(error);
@@ -353,17 +368,44 @@ function addViewer(sessionId, ws, sdpOffer, callback) {
 			return callback(noPresenterMessage);
 		}
 
-		presenter.composite.createHubPort(function (error, _hubPort) {
-			if (error) {
-				console.log("error creating hubport for participant");
-				return calback(error);
-			}
-			viewers[sessionId].hubPort = _hubPort;
-			console.log("create hub port");
-			_hubPort.connect(webRtcEndpoint);
-			console.log("connect to hub port");
-		});
+        presenter.composite.createHubPort(function (error, _hubPort) {
+            if (error) {
+                console.log("error creating hubport for participant");
+                return calback(error);
+            }
+            viewers[sessionId].hubPort = _hubPort;
+            _hubPort.connect(webRtcEndpoint, function() {
+                console.log("connect to hub port");
+            });
+        });
 
+        //presenter.pipeline.create('TextOverlay', function(error, _textoverlay) {
+        //    if (error) {
+        //        return callback(error);
+        //    }
+        //    console.log("TextOverlay:" + JSON.stringify(_textoverlay) );
+        //
+        //    presenter.composite.createHubPort(function (error, _hubPort) {
+        //        if (error) {
+        //            console.log("error creating hubport for participant");
+        //            return calback(error);
+        //        }
+        //        viewers[sessionId].hubPort = _hubPort;
+        //        console.log("create hub port");
+        //        console.log(_hubPort);
+        //        _hubPort.connect(_textoverlay, function() {
+        //            _textoverlay.connect(webRtcEndpoint, function() {
+        //                console.log("connect to hub port");
+        //                webRtcEndpoint.getStats("VIDEO", function (arg1, arg2) {
+        //                    console.log(arg1);
+        //                    console.log(arg2);
+        //                });
+        //            });
+        //
+        //        });
+        //    });
+        //});
+        //
 
 		if (candidatesQueue[sessionId]) {
 			while(candidatesQueue[sessionId].length) {

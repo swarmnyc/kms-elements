@@ -725,7 +725,7 @@ create_freezeimage_video (KmsCompositeMixer * self)
   textoverlay = gst_element_factory_make ("textoverlay", NULL);
   g_object_set (G_OBJECT (textoverlay), "text", "BACKGROUND2", NULL);
   g_object_set (G_OBJECT (textoverlay), "valignment", 2, "halignment", "left",
-      "alpha", 0.0, NULL);
+      "shaded-background", 1, NULL);
 
   if (self->priv->videomixer == NULL)
     return -2;
