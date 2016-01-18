@@ -44,6 +44,7 @@ generic_find (LIBNAME libsoup-2.4 VERSION ${SOUP_REQUIRED} REQUIRED)
 generic_find (LIBNAME nice VERSION ${NICE_REQUIRED} REQUIRED)
 generic_find (LIBNAME gio-2.0 VERSION ${GLIB_REQUIRED} REQUIRED)
 generic_find (LIBNAME uuid REQUIRED)
+generic_find (LIBNAME json-glib-1.0 REQUIRED)
 
 set (VERSION ${PROJECT_VERSION})
 set (PACKAGE ${PROJECT_NAME})

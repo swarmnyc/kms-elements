@@ -44,7 +44,7 @@ public:
 
   virtual void Serialize (JsonSerializer &serializer);
 
-  void setText (const std::string &text);
+  void setStyle (const std::string &style);
 
 private:
 

@@ -22,6 +22,7 @@ sudo apt-get update
 sudo apt-get install kurento-media-server-6.0-dev
 
 sudo apt-get install libboost-all-dev bison flex uuid-dev libsoup2.4-dev build-essential libtool autotools-dev  automake indent astyle npm nodejs-legacy git
+sudo apt-get install libjson-glib-dev
 
 # build tools
 #   build-essential libtool autotools-dev automake

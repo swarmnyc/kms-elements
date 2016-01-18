@@ -18,6 +18,9 @@
 #include "config.h"
 #endif
 
+#include <stdlib.h>
+#include <glib-object.h>
+#include <json-glib/json-glib.h>
 #include <gst/gst.h>
 #include "kmstextoverlay.h"
 
@@ -34,6 +37,14 @@
 GST_DEBUG_CATEGORY_STATIC (kms_text_overlay_debug_category);
 #define GST_CAT_DEFAULT kms_text_overlay_debug_category
 
+#define KMS_TEXT_OVERLAY_GET_PRIVATE(obj) (\
+  G_TYPE_INSTANCE_GET_PRIVATE (            \
+    (obj),                                 \
+    KMS_TYPE_TEXT_OVERLAY,                 \
+    KmsTextOverlayPrivate                  \
+  )                                        \
+)
+
 #define DEFAULT_STYLE NULL
 
 enum
@@ -46,10 +57,7 @@ enum
 struct _KmsTextOverlayPrivate
 {
   GRecMutex mutex;
-  GstElement *videomixer;
-  GstElement *audiomixer;
-  GstElement *videotestsrc;
-  GHashTable *ports;
+  GstElement *textoverlay;
   gchar *style;
 };
 
@@ -60,6 +68,51 @@ G_DEFINE_TYPE_WITH_CODE (KmsTextOverlay, kms_text_overlay,
     GST_DEBUG_CATEGORY_INIT (kms_text_overlay_debug_category, PLUGIN_NAME,
         0, "debug category for textoverlay element"));
 
+static gboolean
+kms_text_overlay_parse_style (KmsTextOverlay * self)
+{
+  JsonParser *parser;
+  GError *error;
+  JsonReader *reader;
+  const char *text = "?", *font_desc = "?";
+
+  GST_INFO ("@rentao kms_text_overlay_parse_style text=%s, font=%s", text,
+      font_desc);
+  parser = json_parser_new ();
+  error = NULL;
+//    json_parser_load_from_data (parser, "{'text':'I am text', 'font-desc':'sans bold 24'}", -1, &error);
+  json_parser_load_from_data (parser, self->priv->style, -1, &error);
+  if (error) {
+    GST_INFO ("@rentao Unable to parse %s, err=%s", self->priv->style,
+        error->message);
+    g_error_free (error);
+    g_object_unref (parser);
+    return FALSE;
+  }
+  reader = json_reader_new (json_parser_get_root (parser));
+
+  json_reader_read_member (reader, "text");
+  text = json_reader_get_string_value (reader);
+  if (text != NULL) {
+    g_object_set (G_OBJECT (self->priv->textoverlay), "text", text, NULL);
+  }
+  json_reader_end_member (reader);
+
+  json_reader_read_member (reader, "font-desc");
+  font_desc = json_reader_get_string_value (reader);
+  if (font_desc != NULL) {
+    g_object_set (G_OBJECT (self->priv->textoverlay), "font-desc", font_desc,
+        NULL);
+  }
+  json_reader_end_member (reader);
+
+  GST_INFO ("@rentao text=%s, font=%s", text, font_desc);
+  g_object_unref (reader);
+  g_object_unref (parser);
+
+  return TRUE;
+}
+
 static void
 kms_text_overlay_connect_textoverlay (KmsTextOverlay * self,
     KmsElementPadType type, GstElement * agnosticbin)
@@ -68,8 +121,13 @@ kms_text_overlay_connect_textoverlay (KmsTextOverlay * self,
   GstElement *textoverlay, *videoconvert, *decodebin2, *capsfilter, *videorate,
       *videoscale;
   GstCaps *filtercaps;
+  gchar *textMsg = "";
 
   GST_ERROR ("@rentao type = %d.", type);
+  if (self->priv->style != NULL) {
+    textMsg = self->priv->style;
+  }
+  GST_ERROR ("@rentao textMsg = %s.", textMsg);
   if (type == KMS_ELEMENT_PAD_TYPE_VIDEO) {
     // textoverlay source code:
     //   https://code.google.com/p/ossbuild/source/browse/trunk/Main/GStreamer/Source/gst-plugins-base/ext/pango/gsttextoverlay.c?spec=svn1012&r=1007
@@ -83,18 +141,20 @@ kms_text_overlay_connect_textoverlay (KmsTextOverlay * self,
     capsfilter = gst_element_factory_make ("capsfilter", NULL);
     filtercaps =
         gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "AYUV",
-//                "width", G_TYPE_INT, 400,
-//                "height", G_TYPE_INT, 400,
-        "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
+//                "width", G_TYPE_INT, 300,
+//                "height", G_TYPE_INT, 300,
+//        "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
+        NULL);
     g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
     gst_caps_unref (filtercaps);
 
     videorate = gst_element_factory_make ("videorate", NULL);
     videoscale = gst_element_factory_make ("videoscale", NULL);
 
-    g_object_set (G_OBJECT (textoverlay), "text", "textoverlay", NULL);
+    g_object_set (G_OBJECT (textoverlay), "text", textMsg, NULL);
     g_object_set (G_OBJECT (textoverlay), "valignment", 1, "halignment", "left",
-        "shaded-background", 1, NULL);
+        "shaded-background", 1, "auto-resize", 0, "font-desc", "sans bold 12",
+        NULL);
     sink = gst_element_get_static_pad (videoscale, "sink");
     if (sink == NULL) {
       GST_ERROR ("@rentao videoconvert sink cannot be created.");
@@ -104,7 +164,7 @@ kms_text_overlay_connect_textoverlay (KmsTextOverlay * self,
     GST_ERROR ("@rentao linking elements.");
     gst_bin_add_many (GST_BIN (self), videoscale, videoconvert, textoverlay,
         capsfilter, NULL);
-    gst_element_link_many (videoscale, videoconvert, textoverlay, capsfilter,
+    gst_element_link_many (videoscale, videoconvert, capsfilter, textoverlay,
         agnosticbin, NULL);
     gst_element_sync_state_with_parent (textoverlay);
     gst_element_sync_state_with_parent (videoconvert);
@@ -112,6 +172,7 @@ kms_text_overlay_connect_textoverlay (KmsTextOverlay * self,
     gst_element_sync_state_with_parent (decodebin2);
     gst_element_sync_state_with_parent (videoscale);
     gst_element_sync_state_with_parent (videorate);
+    self->priv->textoverlay = textoverlay;
   }
 
   target = gst_element_get_static_pad (agnosticbin, "sink");
@@ -165,7 +226,12 @@ kms_text_overlay_set_property (GObject * object, guint prop_id,
       g_free (self->priv->style);
       self->priv->style = g_value_dup_string (value);
 //      kms_composite_parse_style (self);
+//      if (self->priv->textoverlay != NULL) {
+//        g_object_set (G_OBJECT (self->priv->textoverlay), "text",
+//            self->priv->style, NULL);
+//      }
       GST_INFO ("@rentao setStyle(%s)", self->priv->style);
+      kms_text_overlay_parse_style (self);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -200,6 +266,8 @@ kms_text_overlay_class_init (KmsTextOverlayClass * klass)
 static void
 kms_text_overlay_init (KmsTextOverlay * self)
 {
+  self->priv = KMS_TEXT_OVERLAY_GET_PRIVATE (self);
+
   GST_ERROR ("@rentao kms_text_overlay started");
   kms_text_overlay_connect_textoverlay (self, KMS_ELEMENT_PAD_TYPE_VIDEO,
       kms_element_get_video_agnosticbin (KMS_ELEMENT (self)));

@@ -28,9 +28,9 @@ TextOverlayImplFactory::createObject (const boost::property_tree::ptree &config,
 }
 
 void
-TextOverlayImpl::setText (const std::string &text)
+TextOverlayImpl::setStyle (const std::string &style)
 {
-  g_object_set ( G_OBJECT (this), "style", text.c_str(), NULL);
+  g_object_set ( G_OBJECT (element), "style", style.c_str(), NULL);
 }
 
 TextOverlayImpl::StaticConstructor TextOverlayImpl::staticConstructor;

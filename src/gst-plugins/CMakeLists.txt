@@ -59,6 +59,7 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_BINARY_DIR}
   ${libsoup-2.4_INCLUDE_DIRS}
+  ${json-glib-1.0_INCLUDE_DIRS}
 )
 
 target_link_libraries(${LIBRARY_NAME}plugins
@@ -68,6 +69,7 @@ target_link_libraries(${LIBRARY_NAME}plugins
   ${gstreamer-app-1.5_LIBRARIES}
   ${gstreamer-pbutils-1.5_LIBRARIES}
   ${libsoup-2.4_LIBRARIES}
+  ${json-glib-1.0_LIBRARIES}
 )
 
 install(

@@ -22,6 +22,9 @@
 #include <commons/kmsloop.h>
 #include <commons/kmsrefstruct.h>
 #include <math.h>
+#include <stdlib.h>
+#include <glib-object.h>
+#include <json-glib/json-glib.h>
 
 #define LATENCY 600             //ms
 
@@ -104,10 +107,12 @@ struct _KmsCompositeMixerPrivate
   GRecMutex mutex;
   gint n_elems;
   gint output_width, output_height;
+  gint pad_x, pad_y, line_weight;
   gchar *background_image;
   gchar *style;
   GstElement *source, *jpg_decoder;
-  GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale;
+  GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale,
+      *textoverlay;
   GstCaps *filtercaps;
 };
 
@@ -205,6 +210,7 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
   GList *l;
   GList *values = g_hash_table_get_values (self->priv->ports);
   gint column_spacing, row_spacing;
+  gint content_width, content_height;
 
   if (self->priv->n_elems <= 0) {
     return;
@@ -221,12 +227,14 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
 
   GST_DEBUG_OBJECT (self, "columns %d rows %d", n_columns, n_rows);
 
+  content_width = self->priv->output_width - self->priv->pad_x;
+  content_height = self->priv->output_height - self->priv->pad_y;
 //  width = self->priv->output_width / n_columns;
 //  height = self->priv->output_height / n_columns;       //n_rows;
-  width = self->priv->output_width / self->priv->n_elems;
-  height = self->priv->output_height / self->priv->n_elems;
-  column_spacing = ceil (width / 10);
-  row_spacing = ceil (height / 10);
+  width = content_width / self->priv->n_elems;
+  height = content_height;
+  column_spacing = self->priv->line_weight;
+  row_spacing = self->priv->line_weight;
 
   for (l = values; l != NULL; l = l->next) {
     gint l_width, l_height;
@@ -278,7 +286,7 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
     top = (self->priv->output_height - height) / 2;
     top += row_spacing;
     left = ((counter % n_columns) * width);
-    left += column_spacing;
+    left += column_spacing + self->priv->pad_x / 2;
 
     g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top,
         "alpha", 1.0, NULL);
@@ -712,25 +720,18 @@ static int
 create_freezeimage_video (KmsCompositeMixer * self)
 {
   GstElement *source, *jpg_decoder;
-  GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale;
+  GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale,
+      *textoverlay;
   GstCaps *filtercaps;
   GstPad *pad;
   GstPadTemplate *sink_pad_template;
   gchar *bg_img;
-  GstStateChangeReturn ret;
-  GstElement *textoverlay;
-
-  // textoverlay source code:
-  //   https://code.google.com/p/ossbuild/source/browse/trunk/Main/GStreamer/Source/gst-plugins-base/ext/pango/gsttextoverlay.c?spec=svn1012&r=1007
-  textoverlay = gst_element_factory_make ("textoverlay", NULL);
-  g_object_set (G_OBJECT (textoverlay), "text", "BACKGROUND2", NULL);
-  g_object_set (G_OBJECT (textoverlay), "valignment", 2, "halignment", "left",
-      "shaded-background", 1, NULL);
 
   if (self->priv->videomixer == NULL)
     return -2;
   bg_img = self->priv->background_image;
 
+#if 0
   // remove the original elements.
   if (self->priv->source != NULL) {
 //    GstEvent *event;
@@ -782,6 +783,7 @@ create_freezeimage_video (KmsCompositeMixer * self)
     g_object_unref (self->priv->videoscale);
     g_object_unref (self->priv->capsfilter);
   }
+#endif
   // create the elements.
   if (bg_img == NULL) {
     source = gst_element_factory_make ("souphttpsrc", NULL);
@@ -825,6 +827,12 @@ create_freezeimage_video (KmsCompositeMixer * self)
   videoconvert = gst_element_factory_make ("videoconvert", NULL);
   videorate = gst_element_factory_make ("videorate", NULL);
   videoscale = gst_element_factory_make ("videoscale", NULL);
+  // textoverlay source code:
+  //   https://code.google.com/p/ossbuild/source/browse/trunk/Main/GStreamer/Source/gst-plugins-base/ext/pango/gsttextoverlay.c?spec=svn1012&r=1007
+  textoverlay = gst_element_factory_make ("textoverlay", NULL);
+  g_object_set (G_OBJECT (textoverlay), "valignment", 1, "halignment", "left",
+      "shaded-background", 1, "auto-resize", 0, "font-desc", "sans bold 24",
+      NULL);
 
   capsfilter = gst_element_factory_make ("capsfilter", NULL);
   filtercaps =
@@ -848,7 +856,7 @@ create_freezeimage_video (KmsCompositeMixer * self)
 
   gst_element_link_pads (capsfilter, NULL,
       self->priv->videomixer, GST_OBJECT_NAME (pad));
-  g_object_set (pad, "xpos", 0, "ypos", 0, "alpha", 1.0, NULL);
+  g_object_set (pad, "xpos", 0, "ypos", 0, "alpha", 0.9, NULL);
   g_object_unref (pad);
 
   gst_element_sync_state_with_parent (capsfilter);
@@ -866,113 +874,93 @@ create_freezeimage_video (KmsCompositeMixer * self)
   self->priv->freeze = freeze;
   self->priv->jpg_decoder = jpg_decoder;
   self->priv->source = source;
-
-//  ret = gst_element_set_state (self->priv->freeze, GST_STATE_READY);
-//  GST_INFO("@rentao gst_element_set_state return %d", ret);
-//  ret = gst_element_set_state (self->priv->freeze, GST_STATE_PLAYING);
-//  GST_INFO("@rentao gst_element_set_state return %d", ret);
-//  ret = gst_element_set_state (self->priv->source, GST_STATE_PLAYING);
-//  GST_INFO("@rentao gst_element_set_state return %d", ret);
+  self->priv->textoverlay = textoverlay;
 
   return 0;
 }
 
 static gboolean
-kms_composite_parse_style (KmsCompositeMixer * self)
+kms_composite_mixer_parse_style (KmsCompositeMixer * self)
 {
-  GRegex *regex;
-  GMatchInfo *match_info;
-  gchar *foundation, *cid_str, *prio_str, *addr, *port_str, *type_str;
-  gboolean ret = TRUE;
-  gchar *str = self->priv->style;
-  GstElement *textoverlay;
+  JsonParser *parser;
+  GError *error;
+  JsonReader *reader;
+  gint width = 0, height = 0, pad_x = 0, pad_y = 0, line = 0;
+  const gchar *background, *text;
 
-  textoverlay = gst_element_factory_make ("textoverlay", NULL);
-  if (textoverlay == NULL) {
-    GST_INFO ("@rentao !!!NOT SUPPORT textoverlay!!!");
+  parser = json_parser_new ();
+  error = NULL;
+  json_parser_load_from_data (parser, self->priv->style, -1, &error);
+  if (error) {
+    GST_INFO ("@rentao Unable to parse %s, err=%s", self->priv->style,
+        error->message);
+    g_error_free (error);
+    g_object_unref (parser);
+    return FALSE;
   }
+  reader = json_reader_new (json_parser_get_root (parser));
 
-  regex = g_regex_new ("^(candidate:)?(?<foundation>[0-9]+) (?<cid>[0-9]+)"
-      " (?<transport>(udp|UDP|tcp|TCP)) (?<prio>[0-9]+) (?<addr>[0-9.:a-zA-Z]+)"
-      " (?<port>[0-9]+) typ (?<type>(host|srflx|prflx|relay))"
-      "( raddr [0-9.:a-zA-Z]+ rport [0-9]+)?( tcptype (active|passive|so))?( generation [0-9]+)?$",
-      0, 0, NULL);
-  g_regex_match (regex, str, 0, &match_info);
-
-  if (!g_match_info_matches (match_info)) {
-    GST_WARNING ("Cannot create nice candidate from '%s'", str);
-    ret = FALSE;
-    goto end;
+  json_reader_read_member (reader, "width");
+  width = json_reader_get_int_value (reader);
+  if (width > 0) {
+    self->priv->output_width = width;
   }
+  json_reader_end_member (reader);
 
-  foundation = g_match_info_fetch_named (match_info, "foundation");
-  cid_str = g_match_info_fetch_named (match_info, "cid");
-  prio_str = g_match_info_fetch_named (match_info, "prio");
-  addr = g_match_info_fetch_named (match_info, "addr");
-  port_str = g_match_info_fetch_named (match_info, "port");
-  type_str = g_match_info_fetch_named (match_info, "type");
+  json_reader_read_member (reader, "height");
+  height = json_reader_get_int_value (reader);
+  if (height > 0) {
+    self->priv->output_height = height;
+  }
+  json_reader_end_member (reader);
 
-  if (foundation == NULL) {
-    GST_WARNING ("Candidate: cannot get 'foundation'");
-    ret = FALSE;
-    goto free;
+  json_reader_read_member (reader, "background");
+  background = json_reader_get_string_value (reader);
+  if (background != NULL) {
+    g_free (self->priv->background_image);
+    self->priv->background_image = g_strdup (background);
+    create_freezeimage_video (self);
   }
-  if (cid_str == NULL) {
-    GST_WARNING ("Candidate: cannot get 'cid'");
-    ret = FALSE;
-    goto free;
-  }
-  if (prio_str == NULL) {
-    GST_WARNING ("Candidate: cannot get 'prio'");
-    ret = FALSE;
-    goto free;
-  }
-  if (addr == NULL) {
-    GST_WARNING ("Candidate: cannot get 'addr'");
-    ret = FALSE;
-    goto free;
-  }
-  if (port_str == NULL) {
-    GST_WARNING ("Candidate: cannot get 'port'");
-    ret = FALSE;
-    goto free;
-  }
-  if (type_str == NULL) {
-    GST_WARNING ("Candidate: cannot get 'type'");
-    ret = FALSE;
-    goto free;
-  }
-//  *cand = nice_candidate_new (type);
-//  (*cand)->component_id = g_ascii_strtoll (cid_str, NULL, 10);
-//  (*cand)->priority = g_ascii_strtoll (prio_str, NULL, 10);
-//  g_strlcpy ((*cand)->foundation, foundation, NICE_CANDIDATE_MAX_FOUNDATION);
-//
-//  if (!nice_address_set_from_string (&(*cand)->addr, addr)) {
-//    GST_WARNING ("Cannot set address '%s' to candidate", addr);
-//    nice_candidate_free (*cand);
-//    *cand = NULL;
-//    ret = FALSE;
-//    goto free;
-//  }
-//  nice_address_set_port (&(*cand)->addr, g_ascii_strtoll (port_str, NULL, 10));
+  json_reader_end_member (reader);
 
-  GST_INFO
-      ("@rentao foundation=%s, cid_str=%s, prio_str=%s, addr=%s, port_str=%s, type_str=%s",
-      foundation, cid_str, prio_str, addr, port_str, type_str);
+  json_reader_read_member (reader, "text");
+  text = json_reader_get_string_value (reader);
+  if (text != NULL && self->priv->textoverlay != NULL) {
+    g_object_set (G_OBJECT (self->priv->textoverlay), "text", text, NULL);
+    GST_INFO ("@rentao set text=%s", text);
+  }
+  json_reader_end_member (reader);
 
-free:
-  g_free (addr);
-  g_free (foundation);
-  g_free (cid_str);
-  g_free (prio_str);
-  g_free (port_str);
-  g_free (type_str);
+  json_reader_read_member (reader, "pad-x");
+  pad_x = json_reader_get_int_value (reader);
+  if (pad_x > 0) {
+    self->priv->pad_x = pad_x;
+    GST_INFO ("@rentao set pad_x=%d", pad_x);
+  }
+  json_reader_end_member (reader);
 
-end:
-  g_match_info_free (match_info);
-  g_regex_unref (regex);
+  json_reader_read_member (reader, "pad-y");
+  pad_y = json_reader_get_int_value (reader);
+  if (pad_y > 0) {
+    self->priv->pad_y = pad_y;
+    GST_INFO ("@rentao set pad_y=%d", pad_y);
+  }
+  json_reader_end_member (reader);
 
-  return ret;
+  json_reader_read_member (reader, "line-weight");
+  line = json_reader_get_int_value (reader);
+  if (line > 0) {
+    self->priv->line_weight = line;
+    GST_INFO ("@rentao set line-weight=%d", line);
+  }
+  json_reader_end_member (reader);
+
+  GST_INFO ("@rentao parse_style finished width=%d, height=%d, background=%s",
+      width, height, background);
+  g_object_unref (reader);
+  g_object_unref (parser);
+
+  return TRUE;
 }
 
 static gint
@@ -1015,6 +1003,7 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
       GstCaps *filtercaps;
       GstPad *pad;
       GstPadTemplate *sink_pad_template;
+      int pad_x = self->priv->pad_x, pad_y = self->priv->pad_y;
 
       sink_pad_template =
           gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS
@@ -1030,12 +1019,12 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
       g_object_set (G_OBJECT (capsfilter), "caps-change-mode", 1, NULL);
 
       g_object_set (self->priv->videotestsrc, "is-live", TRUE, "pattern",
-          /*black */ 2, NULL);
+          /* white */ 3, NULL);
 
       filtercaps =
           gst_caps_new_simple ("video/x-raw",
-          "width", G_TYPE_INT, self->priv->output_width,
-          "height", G_TYPE_INT, self->priv->output_height,
+          "width", G_TYPE_INT, self->priv->output_width - pad_x,
+          "height", G_TYPE_INT, self->priv->output_height - pad_y,
           "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
       g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
@@ -1051,7 +1040,8 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
 
       gst_element_link_pads (capsfilter, NULL,
           self->priv->videomixer, GST_OBJECT_NAME (pad));
-      g_object_set (pad, "xpos", 0, "ypos", 0, "alpha", 0.0, NULL);
+      g_object_set (pad, "xpos", pad_x / 2, "ypos", pad_y / 2, "alpha", 1.0,
+          NULL);
       g_object_unref (pad);
 
       gst_element_sync_state_with_parent (capsfilter);
@@ -1097,6 +1087,7 @@ kms_composite_mixer_dispose (GObject * object)
   KMS_COMPOSITE_MIXER_UNLOCK (self);
   g_clear_object (&self->priv->loop);
 
+  GST_INFO ("@rentao, dispose, background=%s", self->priv->background_image);
   G_OBJECT_CLASS (kms_composite_mixer_parent_class)->dispose (object);
 }
 
@@ -1112,6 +1103,7 @@ kms_composite_mixer_finalize (GObject * object)
     self->priv->ports = NULL;
   }
 
+  GST_INFO ("@rentao, finalize, background=%s", self->priv->background_image);
   G_OBJECT_CLASS (kms_composite_mixer_parent_class)->finalize (object);
 }
 
@@ -1133,8 +1125,15 @@ kms_composite_mixer_get_property (GObject * object, guint property_id,
     }
     case PROP_STYLE:
     {
-      g_value_set_string (value, self->priv->style);
-      GST_INFO ("@rentao getStyle(%s)", self->priv->style);
+      gchar style[512];
+
+      g_snprintf (style, 512,
+          "{width:%d, height:%d, 'pad-x':%d, 'pad-y':%d, 'line-weight':%d, background:'%s'}",
+          self->priv->output_width, self->priv->output_height,
+          self->priv->pad_x, self->priv->pad_y, self->priv->line_weight,
+          self->priv->background_image);
+      g_value_set_string (value, style);
+      GST_INFO ("@rentao getStyle(%s)", style);
       break;
     }
     default:
@@ -1167,7 +1166,7 @@ kms_composite_mixer_set_property (GObject * object, guint prop_id,
     case PROP_STYLE:
       g_free (self->priv->style);
       self->priv->style = g_value_dup_string (value);
-      kms_composite_parse_style (self);
+      kms_composite_mixer_parse_style (self);
       GST_INFO ("@rentao setStyle(%s)", self->priv->style);
       break;
     default:
@@ -1235,8 +1234,11 @@ kms_composite_mixer_init (KmsCompositeMixer * self)
   self->priv->ports = g_hash_table_new_full (g_int_hash, g_int_equal,
       release_gint, kms_composite_mixer_port_data_destroy);
   //TODO:Obtain the dimensions of the bigger input stream
-  self->priv->output_height = 600;
-  self->priv->output_width = 800;
+  self->priv->output_height = 720;
+  self->priv->output_width = 1280;
+  self->priv->pad_x = self->priv->output_width / 10;
+  self->priv->pad_y = self->priv->output_height / 10;
+  self->priv->line_weight = 2;
   self->priv->n_elems = 0;
 
   self->priv->loop = kms_loop_new ();

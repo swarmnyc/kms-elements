@@ -186,7 +186,12 @@ function startPresenter(sessionId, ws, sdpOffer, callback) {
 					if (error) {
 						return callback(error);
 					}
-					_composite.setBackgroundImage("/etc/kurento/bg.jpg");//("http://placeimg.com/800/600/any.jpg");
+					var style = {width:1280, height:768, 'pad-y':180, background:"http://placeimg.com/1280/768/any.jpg"};
+					_composite.setStyle(JSON.stringify(style));
+					_composite.getStyle(function(err, ret) {
+						console.log( "getStyle return:" + ret );
+					});
+					//_composite.setBackgroundImage("/etc/kurento/bg.jpg");//("http://placeimg.com/800/600/any.jpg");
 					presenter.composite = _composite;
 					addPresenter(sessionId, ws, sdpOffer, callback);
 				});
@@ -253,11 +258,14 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
 				return calback(error);
 			}
 			presenter.hubPorts[sessionId] = _hubPort;
+			presenter.composite.setStyle(JSON.stringify({text:'.                    BG                           .'}));
 
             presenter.pipeline.create('TextOverlay', function(error, _textoverlay) {
                 if (error) {
                     return callback(error);
                 }
+				var style = {text: '`        I am text        `', 'font-desc': 'sans bold 24'};
+				_textoverlay.setStyle(JSON.stringify(style));
                 console.log("TextOverlay:" + JSON.stringify(_textoverlay));
                 webRtcEndpoint.connect(_textoverlay);
                 _textoverlay.connect(_hubPort);
@@ -324,8 +332,8 @@ function startViewer(sessionId, ws, sdpOffer, callback) {
 						if (error) {
 							return callback(error);
 						}
-						_composite.setBackgroundImage("http://placeimg.com/800/600/any.jpg");
-						_composite.setStyle("candidate:1216567004 2 udp 1686052606 104.207.195.34 46271 typ srflx raddr 192.168.17.108 rport 64430 generation 0");
+						var style = {width:1280, height:768, background:"http://placeimg.com/1280/768/any.jpg"};
+						_composite.setStyle(JSON.stringify(style));
 						_composite.getStyle(function(err, ret) {
 							console.log( "getStyle return:" + ret );
 						});
@@ -339,7 +347,7 @@ function startViewer(sessionId, ws, sdpOffer, callback) {
 //	return callback(noPresenterMessage);
 	} else {
 //	presenter.composite.setBackgroundImage("/etc/kurento/bg.jpg");
-		presenter.composite.setBackgroundImage("http://placeimg.com/800/600/any.jpg");
+//		presenter.composite.setBackgroundImage("http://placeimg.com/800/600/any.jpg");
 		addViewer(sessionId, ws, sdpOffer, callback);
 	}
 }

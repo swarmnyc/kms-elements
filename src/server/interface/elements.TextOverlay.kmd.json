@@ -17,12 +17,12 @@
 
       "methods": [
         {
-          "name": "setText",
-          "doc": "Sets text that will show on the video.",
+          "name": "setStyle",
+          "doc": "Sets style that will show on the video.",
           "params": [
             {
-              "name": "text",
-              "doc": "The text to show.",
+              "name": "style",
+              "doc": "The style to show.",
               "type": "String"
             }
           ]
