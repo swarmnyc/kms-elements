@@ -75,6 +75,7 @@ kms_text_overlay_parse_style (KmsTextOverlay * self)
   GError *error;
   JsonReader *reader;
   const char *text = "?", *font_desc = "?";
+  gint deltay = 0;
 
   GST_INFO ("@rentao kms_text_overlay_parse_style text=%s, font=%s", text,
       font_desc);
@@ -106,7 +107,12 @@ kms_text_overlay_parse_style (KmsTextOverlay * self)
   }
   json_reader_end_member (reader);
 
-  GST_INFO ("@rentao text=%s, font=%s", text, font_desc);
+  json_reader_read_member (reader, "deltay");
+  deltay = json_reader_get_int_value (reader);
+  g_object_set (G_OBJECT (self->priv->textoverlay), "deltay", deltay, NULL);
+  json_reader_end_member (reader);
+
+  GST_INFO ("@rentao text=%s, font=%s, deltay=%d", text, font_desc, deltay);
   g_object_unref (reader);
   g_object_unref (parser);
 
@@ -154,7 +160,7 @@ kms_text_overlay_connect_textoverlay (KmsTextOverlay * self,
     g_object_set (G_OBJECT (textoverlay), "text", textMsg, NULL);
     g_object_set (G_OBJECT (textoverlay), "valignment", 1, "halignment", "left",
         "shaded-background", 1, "auto-resize", 0, "font-desc", "sans bold 12",
-        NULL);
+        "wrap-mode", 0, NULL);
     sink = gst_element_get_static_pad (videoscale, "sink");
     if (sink == NULL) {
       GST_ERROR ("@rentao videoconvert sink cannot be created.");

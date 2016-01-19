@@ -95,6 +95,14 @@ GST_STATIC_PAD_TEMPLATE (VIDEO_SRC_PAD_NAME_COMP,
     GST_STATIC_CAPS (KMS_AGNOSTIC_RAW_VIDEO_CAPS)
     );
 
+#define MAX_VIEW_COUNT 4
+typedef struct _KmsConpositeViewPrivate
+{
+  int width;
+  int height;
+  gchar *text;
+} KmsConpositeViewPrivate;
+
 struct _KmsCompositeMixerPrivate
 {
   GstElement *videomixer;
@@ -114,6 +122,7 @@ struct _KmsCompositeMixerPrivate
   GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale,
       *textoverlay;
   GstCaps *filtercaps;
+  KmsConpositeViewPrivate views[MAX_VIEW_COUNT];
 };
 
 /* class initialization */
@@ -129,6 +138,7 @@ typedef struct _KmsCompositeMixerData
   gint id;
   KmsCompositeMixer *mixer;
   GstElement *capsfilter;
+  GstElement *videocrop;
   GstElement *tee;
   GstElement *fakesink;
   gboolean input;
@@ -211,6 +221,7 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
   GList *values = g_hash_table_get_values (self->priv->ports);
   gint column_spacing, row_spacing;
   gint content_width, content_height;
+  gint o_width = self->priv->output_width, o_height = self->priv->output_height;
 
   if (self->priv->n_elems <= 0) {
     return;
@@ -225,10 +236,11 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
   n_columns = self->priv->n_elems;
   n_rows = 1;
 
-  GST_DEBUG_OBJECT (self, "columns %d rows %d", n_columns, n_rows);
+  GST_DEBUG_OBJECT (self, "@rentao columns=%d rows=%d o_width=%d o_height=%d",
+      n_columns, n_rows, o_width, o_height);
 
-  content_width = self->priv->output_width - self->priv->pad_x;
-  content_height = self->priv->output_height - self->priv->pad_y;
+  content_width = o_width - self->priv->pad_x;
+  content_height = o_height - self->priv->pad_y;
 //  width = self->priv->output_width / n_columns;
 //  height = self->priv->output_height / n_columns;       //n_rows;
   width = content_width / self->priv->n_elems;
@@ -238,6 +250,7 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
 
   for (l = values; l != NULL; l = l->next) {
     gint l_width, l_height;
+    gint v_width = -1, v_height = -1;
 
     KmsCompositeMixerData *port_data = l->data;
 
@@ -264,19 +277,7 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
     } else {
       left -= column_spacing / 2;
     }
-#if 0
-    if (get_width_height (port_data->tee_sink_pad, &l_width, &l_height)) {
-      if (l_width * self->priv->output_height >
-          self->priv->output_width * l_height) {
-        l_width = width * l_height / height;
-      } else {
-        l_height = height * l_width / width;
-      }
-    }
-#endif
 
-    GST_DEBUG_OBJECT (self, "@rentao port-data actual width=%d height=%d",
-        l_width, l_height);
 #if 0
     filtercaps =
         gst_caps_new_simple ("video/x-raw",
@@ -288,21 +289,34 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
     top = ((counter / n_columns) * height);
     left = ((counter % n_columns) * width);
 #endif
+    if (counter < MAX_VIEW_COUNT) {
+      v_width = self->priv->views[counter].width;
+      v_height = self->priv->views[counter].height;
+    }
+    if (v_width < 0)
+      v_width = o_width;
+    if (v_height < 0)
+      v_height = o_height;
     filtercaps =
         gst_caps_new_simple ("video/x-raw",
-        "width", G_TYPE_INT, l_width, "height", G_TYPE_INT,
-        l_height, "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
+        "width", G_TYPE_INT, v_width, "height", G_TYPE_INT, v_height,
+        "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
         GST_TYPE_FRACTION, 1, 1, NULL);
     g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
     gst_caps_unref (filtercaps);
 
+    g_object_set (port_data->videocrop, "top", (v_height - l_height) / 2,
+        "bottom", (v_height - l_height) / 2, NULL);
+    g_object_set (port_data->videocrop, "left", (v_width - l_width) / 2,
+        "right", (v_width - l_width) / 2, NULL);
     g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top,
         "alpha", 1.0, NULL);
 
-    GST_DEBUG_OBJECT (self, "counter %d id_port %d ", counter, port_data->id);
+    GST_DEBUG_OBJECT (self, "@rentao counter %d id_port %d ", counter,
+        port_data->id);
     GST_DEBUG_OBJECT (self,
-        "top=%d left=%d, width=%d height=%d, width=%d height=%d", top, left,
-        l_width, l_height, width, height);
+        "@rentao top=%d left=%d, l_width=%d l_height=%d, width=%d height=%d, v_width=%d v_height=%d",
+        top, left, l_width, l_height, width, height, v_width, v_height);
     counter++;
   }
 
@@ -540,8 +554,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -633,18 +647,22 @@ kms_composite_mixer_port_data_create (KmsCompositeMixer * mixer, gint id)
   data->tee = gst_element_factory_make ("tee", NULL);
   data->fakesink = gst_element_factory_make ("fakesink", NULL);
   data->capsfilter = gst_element_factory_make ("capsfilter", NULL);
+  data->videocrop = gst_element_factory_make ("videocrop", NULL);
+  g_object_set (data->videocrop, "top", 50, "left", 100, "right", 100, "bottom",
+      50, NULL);
 
   g_object_set (G_OBJECT (data->capsfilter), "caps-change-mode",
       1 /*delayed */ , NULL);
 
   g_object_set (G_OBJECT (data->fakesink), "async", FALSE, "sync", FALSE, NULL);
 
-  gst_bin_add_many (GST_BIN (mixer), data->capsfilter, data->tee,
-      data->fakesink, NULL);
+  gst_bin_add_many (GST_BIN (mixer), data->capsfilter, data->videocrop,
+      data->tee, data->fakesink, NULL);
 
   gst_element_sync_state_with_parent (data->capsfilter);
   gst_element_sync_state_with_parent (data->tee);
   gst_element_sync_state_with_parent (data->fakesink);
+  gst_element_sync_state_with_parent (data->videocrop);
 
   filtercaps =
       gst_caps_new_simple ("video/x-raw",
@@ -658,8 +676,10 @@ kms_composite_mixer_port_data_create (KmsCompositeMixer * mixer, gint id)
   kms_base_hub_link_video_sink (KMS_BASE_HUB (mixer), data->id,
       data->capsfilter, "sink", FALSE);
 
+  gst_element_link (data->capsfilter, data->videocrop);
+
   data->tee_sink_pad = gst_element_get_static_pad (data->tee, "sink");
-  gst_element_link_pads (data->capsfilter, NULL, data->tee,
+  gst_element_link_pads (data->videocrop, NULL, data->tee,
       GST_OBJECT_NAME (data->tee_sink_pad));
 
   tee_src = gst_element_get_request_pad (data->tee, "src_%u");
@@ -893,7 +913,7 @@ kms_composite_mixer_parse_style (KmsCompositeMixer * self)
   JsonParser *parser;
   GError *error;
   JsonReader *reader;
-  gint width = 0, height = 0, pad_x = 0, pad_y = 0, line = 0;
+  gint width = 0, height = 0, pad_x = 0, pad_y = 0, line = 0, count, i;
   const gchar *background, *text;
 
   parser = json_parser_new ();
@@ -961,6 +981,47 @@ kms_composite_mixer_parse_style (KmsCompositeMixer * self)
     self->priv->line_weight = line;
     GST_INFO ("@rentao set line-weight=%d", line);
   }
+  json_reader_end_member (reader);
+
+  json_reader_read_member (reader, "views");
+  count = json_reader_count_elements (reader);
+  count = (count < MAX_VIEW_COUNT) ? count : MAX_VIEW_COUNT;
+  for (i = 0; i < count; i++) {
+    json_reader_read_element (reader, i);
+
+    if (json_reader_read_member (reader, "text")) {
+      text = json_reader_get_string_value (reader);
+      if (text != NULL) {
+        g_free (self->priv->views[i].text);
+        self->priv->views[i].text = g_strdup (text);
+        GST_INFO ("@rentao set view[%d] text=%s", i, self->priv->views[i].text);
+      }
+      json_reader_end_member (reader);
+    }
+
+    if (json_reader_read_member (reader, "width")) {
+      width = json_reader_get_int_value (reader);
+      if (width > 0) {
+        self->priv->views[i].width = width;
+        GST_INFO ("@rentao set view[%d] width=%d", i,
+            self->priv->views[i].width);
+      }
+      json_reader_end_member (reader);
+    }
+
+    if (json_reader_read_member (reader, "height")) {
+      height = json_reader_get_int_value (reader);
+      if (height > 0) {
+        self->priv->views[i].height = height;
+        GST_INFO ("@rentao set view[%d] height=%d", i,
+            self->priv->views[i].height);
+      }
+      json_reader_end_member (reader);
+    }
+
+    json_reader_end_element (reader);
+  }
+  GST_INFO ("@rentao set views' count=%d", count);
   json_reader_end_member (reader);
 
   GST_INFO ("@rentao parse_style finished width=%d, height=%d, background=%s",
@@ -1237,6 +1298,8 @@ kms_composite_mixer_class_init (KmsCompositeMixerClass * klass)
 static void
 kms_composite_mixer_init (KmsCompositeMixer * self)
 {
+  int i;
+
   self->priv = KMS_COMPOSITE_MIXER_GET_PRIVATE (self);
 
   g_rec_mutex_init (&self->priv->mutex);
@@ -1250,6 +1313,10 @@ kms_composite_mixer_init (KmsCompositeMixer * self)
   self->priv->pad_y = self->priv->output_height / 10;
   self->priv->line_weight = 2;
   self->priv->n_elems = 0;
+  for (i = 0; i < MAX_VIEW_COUNT; i++) {
+    self->priv->views[i].width = -1;
+    self->priv->views[i].height = -1;
+  }
 
   self->priv->loop = kms_loop_new ();
 }
