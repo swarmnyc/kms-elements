@@ -245,8 +245,25 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
       continue;
     }
     //configure the local stream size to master output size
-    l_width = width - column_spacing * 2;
+    l_width = width - column_spacing;
     l_height = height - row_spacing * 2;
+    top = (self->priv->output_height - height) / 2;
+    top += row_spacing;
+    left = ((counter % n_columns) * width);
+    left += column_spacing + self->priv->pad_x / 2;
+
+    // tune the frame set position and size.
+    if (counter == 0) {
+      if (self->priv->n_elems == 1)
+        l_width -= column_spacing;
+      else
+        l_width -= column_spacing / 2;
+    } else if (counter == self->priv->n_elems - 1) {
+      l_width -= column_spacing / 2;
+      left -= column_spacing / 2;
+    } else {
+      left -= column_spacing / 2;
+    }
 #if 0
     if (get_width_height (port_data->tee_sink_pad, &l_width, &l_height)) {
       if (l_width * self->priv->output_height >
@@ -272,30 +289,21 @@ kms_composite_mixer_recalculate_sizes (gpointer data)
     left = ((counter % n_columns) * width);
 #endif
     filtercaps =
-        gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "AYUV",
+        gst_caps_new_simple ("video/x-raw",
         "width", G_TYPE_INT, l_width, "height", G_TYPE_INT,
         l_height, "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
         GST_TYPE_FRACTION, 1, 1, NULL);
     g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
     gst_caps_unref (filtercaps);
 
-//    top = ((counter / n_columns) * height);
-//    top += (self->priv->output_height - l_height) / 2;
-//    top += row_spacing;
-//    left = ((counter % n_columns) * l_width);
-    top = (self->priv->output_height - height) / 2;
-    top += row_spacing;
-    left = ((counter % n_columns) * width);
-    left += column_spacing + self->priv->pad_x / 2;
-
     g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top,
         "alpha", 1.0, NULL);
-    counter++;
 
     GST_DEBUG_OBJECT (self, "counter %d id_port %d ", counter, port_data->id);
     GST_DEBUG_OBJECT (self,
         "top=%d left=%d, width=%d height=%d, width=%d height=%d", top, left,
         l_width, l_height, width, height);
+    counter++;
   }
 
   g_list_free (values);
@@ -532,8 +540,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -1102,6 +1110,8 @@ kms_composite_mixer_finalize (GObject * object)
     g_hash_table_unref (self->priv->ports);
     self->priv->ports = NULL;
   }
+  g_free (self->priv->background_image);
+  g_free (self->priv->style);
 
   GST_INFO ("@rentao, finalize, background=%s", self->priv->background_image);
   G_OBJECT_CLASS (kms_composite_mixer_parent_class)->finalize (object);

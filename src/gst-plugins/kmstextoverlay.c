@@ -242,6 +242,24 @@ kms_text_overlay_set_property (GObject * object, guint prop_id,
 }
 
 static void
+kms_text_overlay_dispose (GObject * object)
+{
+  KmsTextOverlay *self = KMS_TEXT_OVERLAY (object);
+
+  g_free (self->priv->style);
+  GST_INFO ("@rentao, dispose, style=%s", self->priv->style);
+}
+
+static void
+kms_text_overlay_finalize (GObject * object)
+{
+  KmsTextOverlay *self = KMS_TEXT_OVERLAY (object);
+
+  GST_INFO ("@rentao, finalize, style=%s", self->priv->style);
+  G_OBJECT_CLASS (kms_text_overlay_parent_class)->finalize (object);
+}
+
+static void
 kms_text_overlay_class_init (KmsTextOverlayClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
@@ -249,6 +267,8 @@ kms_text_overlay_class_init (KmsTextOverlayClass * klass)
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
       "TextOverlay", "Generic/KmsElement", "Kurento text_overlay",
       "Jose Antonio Santos Cadenas <santoscadenas@gmail.com>");
+  gobject_class->dispose = GST_DEBUG_FUNCPTR (kms_text_overlay_dispose);
+  gobject_class->finalize = GST_DEBUG_FUNCPTR (kms_text_overlay_finalize);
   gobject_class->set_property = kms_text_overlay_set_property;
   gobject_class->get_property = kms_text_overlay_get_property;
 
