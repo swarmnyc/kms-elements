@@ -69,6 +69,10 @@ vi /etc/default/kurento-media-server-6.0
   export GST_PLUGIN_PATH=/home/vagrant/kms-elements/src/src/gst-plugins
 ```
 
+### For deployment in app talks
+replace shared_node_modules/swarm_composite/kurento-client-elements with the js folder generated
+
+
 ### test using node.js server
 ```
 sudo service kurento-media-server-6.0 restart
