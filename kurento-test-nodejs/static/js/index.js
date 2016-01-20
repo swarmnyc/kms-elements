@@ -24,6 +24,8 @@ window.onload = function() {
 	document.getElementById('call').addEventListener('click', function() { presenter(); } );
 	document.getElementById('viewer').addEventListener('click', function() { viewer(); } );
 	document.getElementById('terminate').addEventListener('click', function() { stop(); } );
+	document.getElementById('action1').addEventListener('click', function() { action1(); } );
+	document.getElementById('action2').addEventListener('click', function() { action2(); } );
 }
 
 window.onbeforeunload = function() {
@@ -46,6 +48,10 @@ ws.onmessage = function(message) {
 		break;
 	case 'iceCandidate':
 		webRtcPeer.addIceCandidate(parsedMessage.candidate)
+		break;
+	case 'action1':
+		break;
+	case 'action2':
 		break;
 	default:
 		console.error('Unrecognized message', parsedMessage);
@@ -172,6 +178,22 @@ function hideSpinner() {
 		arguments[i].src = '';
 		arguments[i].poster = './img/webrtc.png';
 		arguments[i].style.background = '';
+	}
+}
+
+function action1() {
+	var message = {
+		id: 'action1'
+	}
+	sendMessage(message);
+}
+
+function action2() {
+	if (webRtcPeer) {
+		var message = {
+			id: 'action2'
+		}
+		sendMessage(message);
 	}
 }
 

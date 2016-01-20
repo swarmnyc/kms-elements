@@ -20,6 +20,8 @@ set(KMS_ELEMENTS_SOURCES
   kmsbasemediamuxer.c
   kmsavmuxer.c
   kmstextoverlay.c
+  kmsstylecompositemixer.c
+  kmsepisodeoverlay.c
 )
 
 set(KMS_ELEMENTS_HEADERS
@@ -36,6 +38,8 @@ set(KMS_ELEMENTS_HEADERS
   kmsbasemediamuxer.h
   kmsavmuxer.h
   kmstextoverlay.h
+  kmsstylecompositemixer.h
+  kmsepisodeoverlay.h
 )
 
 set(ENUM_HEADERS

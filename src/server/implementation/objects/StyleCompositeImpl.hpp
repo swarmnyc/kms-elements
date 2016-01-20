@@ -1,28 +1,32 @@
-#ifndef __COMPOSITE_IMPL_HPP__
-#define __COMPOSITE_IMPL_HPP__
+#ifndef __STYLE_COMPOSITE_IMPL_HPP__
+#define __STYLE_COMPOSITE_IMPL_HPP__
 
 #include "HubImpl.hpp"
 #include "Composite.hpp"
+#include "StyleComposite.hpp"
 #include <EventHandler.hpp>
 
 namespace kurento
 {
 
 class MediaPipeline;
-class CompositeImpl;
+class StyleCompositeImpl;
 
-void Serialize (std::shared_ptr<CompositeImpl> &object,
+void Serialize (std::shared_ptr<StyleCompositeImpl> &object,
                 JsonSerializer &serializer);
 
-class CompositeImpl : public HubImpl, public virtual Composite
+class StyleCompositeImpl : public HubImpl, public virtual Composite
 {
 
 public:
 
-  CompositeImpl (const boost::property_tree::ptree &conf,
-                 std::shared_ptr<MediaPipeline> mediaPipeline);
+  StyleCompositeImpl (const boost::property_tree::ptree &conf,
+                      std::shared_ptr<MediaPipeline> mediaPipeline);
 
-  virtual ~CompositeImpl () {};
+  virtual ~StyleCompositeImpl () {};
+
+  std::string getStyle ();
+  void setStyle (const std::string &style);
 
   /* Next methods are automatically implemented by code generator */
   virtual bool connect (const std::string &eventType,
@@ -48,4 +52,4 @@ private:
 
 } /* kurento */
 
-#endif /*  __COMPOSITE_IMPL_HPP__ */
+#endif /*  __STYLE_COMPOSITE_IMPL_HPP__ */
