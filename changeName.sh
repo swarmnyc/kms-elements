@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-oldName=compositemixer
+oldName=stylecompositemixer
 newName=stylemixer
-oldName1=COMPOSITEMIXER
+oldName1=STYLECOMPOSITEMIXER
 newName1=STYLEMIXER
-oldName2=composite_mixer
+oldName2=style_composite_mixer
 newName2=style_mixer
-oldName3=CompositeMixer
+oldName3=StyleCompositeMixer
 newName3=StyleMixer
 
 

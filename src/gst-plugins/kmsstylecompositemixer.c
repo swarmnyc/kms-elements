@@ -554,8 +554,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -1259,6 +1259,7 @@ kms_style_composite_mixer_class_init (KmsStyleCompositeMixerClass * klass)
   KmsBaseHubClass *base_hub_class = KMS_BASE_HUB_CLASS (klass);
   GstElementClass *gstelement_class = GST_ELEMENT_CLASS (klass);
 
+  GST_ERROR ("@rentao");
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
       "StyleCompositeMixer", "Generic",
       "Mixer element that composes n input flows" " in one output flow",
@@ -1306,6 +1307,8 @@ static void
 kms_style_composite_mixer_init (KmsStyleCompositeMixer * self)
 {
   int i;
+
+  GST_ERROR ("@rentao");
 
   self->priv = KMS_STYLE_COMPOSITE_MIXER_GET_PRIVATE (self);
 

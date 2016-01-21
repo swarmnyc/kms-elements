@@ -355,31 +355,31 @@ function startViewer(sessionId, ws, sdpOffer, callback) {
                     //    }
                     //});
 
-					presenter.pipeline.create('TextOverlay', function(error, _textoverlay) {
+					//presenter.pipeline.create('TextOverlay', function(error, _textoverlay) {
+					//	if (error) {
+					//		console.log(error);
+					//		return callback(error);
+					//	}
+					//	var style = {text: '`                                                  I am '+sessionId+'                                                     `', 'font-desc': 'sans bold 24', deltay:30};
+					//	_textoverlay.setStyle(JSON.stringify(style));
+					//	console.log("TextOverlay:" + JSON.stringify(_textoverlay));
+					//});
+
+					presenter.pipeline.create('StyleComposite', function(error, _composite) {
 						if (error) {
-							console.log(error);
 							return callback(error);
 						}
-						var style = {text: '`                                                  I am '+sessionId+'                                                     `', 'font-desc': 'sans bold 24', deltay:30};
-						_textoverlay.setStyle(JSON.stringify(style));
-						console.log("TextOverlay:" + JSON.stringify(_textoverlay));
+						console.log(_composite)
+//						var style = {width:1280, height:768, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/1280/768/any.jpg"};
+//						var style = {width:800, height:600, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/800/600/any.jpg", views:[{width:400, height:500, text:"123"},{width:400, height:500, text:"1234"},{id:3},{text:"abc"}]};
+						var style = {width:640, height:480, 'pad-x': 40, 'pad-y': 40, background:"http://placeimg.com/640/480/any.jpg", views:[{width:640, height:480, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
+						_composite.setStyle(JSON.stringify(style));
+						_composite.getStyle(function(err, ret) {
+							console.log( "getStyle return:" + ret );
+						});
+						presenter.composite = _composite;
+						addViewer(sessionId, ws, sdpOffer, callback);
 					});
-
-//					presenter.pipeline.create('StyleComposite', function(error, _composite) {
-//						if (error) {
-//							return callback(error);
-//						}
-//						console.log(_composite)
-////						var style = {width:1280, height:768, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/1280/768/any.jpg"};
-////						var style = {width:800, height:600, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/800/600/any.jpg", views:[{width:400, height:500, text:"123"},{width:400, height:500, text:"1234"},{id:3},{text:"abc"}]};
-//						var style = {width:640, height:480, 'pad-x': 40, 'pad-y': 40, background:"http://placeimg.com/640/480/any.jpg", views:[{width:640, height:480, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
-//						_composite.setStyle(JSON.stringify(style));
-//						_composite.getStyle(function(err, ret) {
-//							console.log( "getStyle return:" + ret );
-//						});
-//						presenter.composite = _composite;
-//						addViewer(sessionId, ws, sdpOffer, callback);
-//					});
 				});
 			}
 		});
