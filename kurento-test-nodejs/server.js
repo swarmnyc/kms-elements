@@ -283,6 +283,24 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
 				return calback(error);
 			}
 			presenter.hubPorts[sessionId] = _hubPort;
+			//_hubPort.getName(function(err, obj){
+			//	console.log("hubPort.getId");
+			//	console.log(err);
+			//	console.log(obj);
+			//});
+			//_hubPort.getGstreamerDot(function(err, obj){
+			//	console.log("hubPort.getGstremerDot");
+			//	console.log(err);
+			//	console.log(obj);
+			//});
+			_hubPort.setMaxOuputBitrate(1234, function(err, obj){
+				_hubPort.getMaxOuputBitrate(function(err, obj){
+					console.log("hubPort.getMaxOuputBitrate");
+					console.log(err);
+					console.log(obj);
+				});
+
+			});
 			presenter.composite.setStyle(JSON.stringify({text:'.                    BG                           .'}));
 
             presenter.pipeline.create('TextOverlay', function(error, _textoverlay) {
