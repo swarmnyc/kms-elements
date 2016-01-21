@@ -26,7 +26,7 @@
 #include "kmsalphablending.h"
 #include "kmsstylecompositemixer.h"
 #include "kmstextoverlay.h"
-#include "kmsepisodeoverlay.h"
+//#include "kmsepisodeoverlay.h"
 
 static gboolean
 kurento_init (GstPlugin * kurento)
@@ -70,10 +70,9 @@ kurento_init (GstPlugin * kurento)
   if (!kms_text_overlay_plugin_init (kurento)) {
     return FALSE;
   }
-
-  if (!kms_episode_overlay_plugin_init (kurento)) {
-    return FALSE;
-  }
+//  if (!kms_episode_overlay_plugin_init (kurento)) {
+//    return FALSE;
+//  }
 
   if (!kms_alpha_blending_plugin_init (kurento))
     return FALSE;
