@@ -531,6 +531,7 @@ kms_episode_overlay_finalize (GObject * object)
 static void
 kms_episode_overlay_init (KmsEpisodeOverlay * episodeoverlay)
 {
+  GST_ERROR ("@rentao");
   episodeoverlay->priv = KMS_EPISODE_OVERLAY_GET_PRIVATE (episodeoverlay);
 
   episodeoverlay->priv->show_debug_info = FALSE;
@@ -617,6 +618,7 @@ kms_episode_overlay_class_init (KmsEpisodeOverlayClass * klass)
 gboolean
 kms_episode_overlay_plugin_init (GstPlugin * plugin)
 {
+  GST_ERROR ("@rentao");
   return gst_element_register (plugin, PLUGIN_NAME, GST_RANK_NONE,
       KMS_TYPE_EPISODE_OVERLAY);
 }

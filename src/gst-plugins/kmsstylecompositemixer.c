@@ -560,8 +560,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -1082,6 +1082,7 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
 #endif
 #if 1
     if (self->priv->videotestsrc == NULL) {
+      GstElement *episodeoverlay;
       GstElement *capsfilter;
       GstCaps *filtercaps;
       GstPad *pad;
@@ -1098,6 +1099,11 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
 
       self->priv->videotestsrc =
           gst_element_factory_make ("videotestsrc", NULL);
+
+      GST_ERROR ("@rentao to be create episodeoverlay");
+      episodeoverlay = gst_element_factory_make ("episodeoverlay", NULL);
+      GST_ERROR_OBJECT (episodeoverlay, "@rentao create episodeoverlay");
+
       capsfilter = gst_element_factory_make ("capsfilter", NULL);
       g_object_set (G_OBJECT (capsfilter), "caps-change-mode", 1, NULL);
 
@@ -1113,9 +1119,10 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
       gst_caps_unref (filtercaps);
 
       gst_bin_add_many (GST_BIN (self), self->priv->videotestsrc,
-          capsfilter, NULL);
+          episodeoverlay, capsfilter, NULL);
 
-      gst_element_link (self->priv->videotestsrc, capsfilter);
+      gst_element_link_many (self->priv->videotestsrc, episodeoverlay,
+          capsfilter, NULL);
 
       /*link capsfilter -> videomixer */
       pad = gst_element_request_pad (self->priv->videomixer, sink_pad_template,
@@ -1128,6 +1135,7 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
       g_object_unref (pad);
 
       gst_element_sync_state_with_parent (capsfilter);
+      gst_element_sync_state_with_parent (episodeoverlay);
       gst_element_sync_state_with_parent (self->priv->videotestsrc);
     }
 #endif

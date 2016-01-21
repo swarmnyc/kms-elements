@@ -307,7 +307,7 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
                 if (error) {
                     return callback(error);
                 }
-				var style = {text: '`                                                  I am '+sessionId+'                                                     `', 'font-desc': 'sans bold 24', deltay:30};
+				var style = {text: 'I am '+sessionId, 'font-desc': 'sans bold 24', deltay:30};
 //				_textoverlay.setStyle(JSON.stringify(style));
                 console.log("TextOverlay:" + JSON.stringify(_textoverlay));
                 //webRtcEndpoint.connect(_textoverlay);
