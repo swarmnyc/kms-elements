@@ -554,8 +554,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -1024,6 +1024,10 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
 
     json_reader_end_element (reader);
   }
+  if (count > 0) {
+    kms_style_composite_mixer_recalculate_sizes (self);
+  }
+
   GST_INFO ("@rentao set views' count=%d", count);
   json_reader_end_member (reader);
 
@@ -1307,8 +1311,6 @@ static void
 kms_style_composite_mixer_init (KmsStyleCompositeMixer * self)
 {
   int i;
-
-  GST_ERROR ("@rentao");
 
   self->priv = KMS_STYLE_COMPOSITE_MIXER_GET_PRIVATE (self);
 

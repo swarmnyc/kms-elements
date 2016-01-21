@@ -34,6 +34,7 @@ var options =
 	key:  fs.readFileSync('keys/server.key'),
 	cert: fs.readFileSync('keys/server.crt')
 };
+var views_style = {views:[{width:640, height:480, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
 
 var app = express();
 
@@ -140,11 +141,10 @@ wss.on('connection', function(ws) {
 				break;
 
 			case 'action1':
-				console.log("action1");
 				if (presenter.composite != null) {
-					var style = {views:[{width:640/4*3, height:480/4*3, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
-					presenter.composite.setStyle(JSON.stringify(style));
-
+					views_style.views[0].width += 64;
+					views_style.views[0].height += 48;
+					presenter.composite.setStyle(JSON.stringify(views_style));
 				}
 				ws.send(JSON.stringify({
 					id : 'action1',
@@ -153,12 +153,10 @@ wss.on('connection', function(ws) {
 				break;
 
 			case 'action2':
-				console.log("action2");
-				console.log("action1");
 				if (presenter.composite != null) {
-					var style = {views:[{width:640/3*2, height:480/3*2, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
-					presenter.composite.setStyle(JSON.stringify(style));
-
+					views_style.views[0].width -= 64;
+					views_style.views[0].height -= 48;
+					presenter.composite.setStyle(JSON.stringify(views_style));
 				}
 				ws.send(JSON.stringify({
 					id : 'action2',
