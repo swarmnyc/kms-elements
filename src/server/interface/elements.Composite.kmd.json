@@ -15,49 +15,6 @@
             }
           ]
         }
-      ,"methods": [
-        {
-          "name": "setBackgroundImage",
-          "doc": "Sets the background image of the episode meeting.",
-          "params": [
-            {
-              "name": "uri",
-              "doc": "The path of the backgroud image, can be http file or local file.",
-              "type": "String"
-            }
-          ]
-        }
-        ,{
-          "name": "getBackgroundImage",
-          "doc": "Gets the background image's uri",
-          "params": [],
-          "return": {
-            "doc": "The uri as a String",
-            "type": "String"
-          }
-        }
-        ,{
-          "name": "setStyle",
-          "doc": "Sets the style of the composite video, e.g. message, name, frame position, etc.",
-          "params": [
-            {
-              "name": "style",
-              "doc": "The style description, like:",
-              "type": "String"
-            }
-          ]
-        }
-        ,{
-          "name": "getStyle",
-          "doc": "Gets the style of the composite video, e.g. message, name, frame position, etc.",
-          "params": [],
-          "return": {
-            "doc": "The style descrition, like:",
-            "type": "String"
-          }
-        }
-      ]
     }
   ]
 }
-

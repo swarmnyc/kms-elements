@@ -34,6 +34,7 @@ var options =
 	key:  fs.readFileSync('keys/server.key'),
 	cert: fs.readFileSync('keys/server.crt')
 };
+var views_style = {views:[{width:640, height:480, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
 
 var app = express();
 
@@ -139,6 +140,33 @@ wss.on('connection', function(ws) {
 				onIceCandidate(sessionId, message.candidate);
 				break;
 
+			case 'action1':
+				if (presenter.composite != null) {
+					views_style.views[0].width += 64;
+					views_style.views[0].height += 48;
+					presenter.composite.setStyle(JSON.stringify(views_style));
+				}
+				ws.send(JSON.stringify({
+					id : 'action1',
+					message : 'accepted'
+				}));
+				break;
+
+			case 'action2':
+				if (presenter.composite != null) {
+					views_style.views[0].width -= 64;
+					views_style.views[0].height -= 48;
+					presenter.composite.setStyle(JSON.stringify(views_style));
+
+					//var style = {background:"http://placeimg.com/800/600/any.jpg"};
+					//presenter.composite.setStyle(JSON.stringify(style));
+				}
+				ws.send(JSON.stringify({
+					id : 'action2',
+					message : 'accepted'
+				}));
+				break;
+
 			default:
 				ws.send(JSON.stringify({
 					id : 'error',
@@ -182,11 +210,11 @@ function startPresenter(sessionId, ws, sdpOffer, callback) {
 				}
 				presenter.pipeline = _pipeline;
 
-				presenter.pipeline.create('Composite', function(error, _composite) {
+				presenter.pipeline.create('StyleComposite', function(error, _composite) {
 					if (error) {
 						return callback(error);
 					}
-					var style = {width:800, height:600, 'pad-y':380, background:"http://placeimg.com/1280/768/any.jpg"};
+					var style = {width:800, height:600, 'pad-y':80, background:"http://placeimg.com/800/600/any.jpg", views:[{width:800, height:600, text:"Host Kurento"},{width:800, height:600, text:"Guest: Tao"},{id:3},{text:"Guest: Alex"}]};
 					_composite.setStyle(JSON.stringify(style));
 					_composite.getStyle(function(err, ret) {
 						console.log( "getStyle return:" + ret );
@@ -258,13 +286,31 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
 				return calback(error);
 			}
 			presenter.hubPorts[sessionId] = _hubPort;
+			//_hubPort.getName(function(err, obj){
+			//	console.log("hubPort.getId");
+			//	console.log(err);
+			//	console.log(obj);
+			//});
+			//_hubPort.getGstreamerDot(function(err, obj){
+			//	console.log("hubPort.getGstremerDot");
+			//	console.log(err);
+			//	console.log(obj);
+			//});
+			_hubPort.setMaxOuputBitrate(1234, function(err, obj){
+				_hubPort.getMaxOuputBitrate(function(err, obj){
+					console.log("hubPort.getMaxOuputBitrate");
+					console.log(err);
+					console.log(obj);
+				});
+
+			});
 			presenter.composite.setStyle(JSON.stringify({text:'.                    BG                           .'}));
 
             presenter.pipeline.create('TextOverlay', function(error, _textoverlay) {
                 if (error) {
                     return callback(error);
                 }
-				var style = {text: '`                                                  I am '+sessionId+'                                                     `', 'font-desc': 'sans bold 24', deltay:30};
+				var style = {text: 'I am '+sessionId, 'font-desc': 'sans bold 24', deltay:30};
 //				_textoverlay.setStyle(JSON.stringify(style));
                 console.log("TextOverlay:" + JSON.stringify(_textoverlay));
                 //webRtcEndpoint.connect(_textoverlay);
@@ -328,13 +374,24 @@ function startViewer(sessionId, ws, sdpOffer, callback) {
                     //    }
                     //});
 
-					presenter.pipeline.create('Composite', function(error, _composite) {
+					//presenter.pipeline.create('TextOverlay', function(error, _textoverlay) {
+					//	if (error) {
+					//		console.log(error);
+					//		return callback(error);
+					//	}
+					//	var style = {text: '`                                                  I am '+sessionId+'                                                     `', 'font-desc': 'sans bold 24', deltay:30};
+					//	_textoverlay.setStyle(JSON.stringify(style));
+					//	console.log("TextOverlay:" + JSON.stringify(_textoverlay));
+					//});
+
+					presenter.pipeline.create('StyleComposite', function(error, _composite) {
 						if (error) {
 							return callback(error);
 						}
+						console.log(_composite)
 //						var style = {width:1280, height:768, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/1280/768/any.jpg"};
 //						var style = {width:800, height:600, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/800/600/any.jpg", views:[{width:400, height:500, text:"123"},{width:400, height:500, text:"1234"},{id:3},{text:"abc"}]};
-						var style = {width:640, height:480, 'pad-x': 40, 'pad-y': 40, background:"http://placeimg.com/640/480/any.jpg", views:[{width:640, height:480, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
+						var style = {width:640, height:480, 'pad-x': 40, 'pad-y': 40, background:"http://placeimg.com/640/480/any.jpg", views:[{width:640, height:480, text:"Host Kurento"},{width:320, height:480, text:"Guest: Tao"},{id:3},{text:"Guest: Alex"}]};
 						_composite.setStyle(JSON.stringify(style));
 						_composite.getStyle(function(err, ret) {
 							console.log( "getStyle return:" + ret );

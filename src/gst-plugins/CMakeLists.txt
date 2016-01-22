@@ -20,6 +20,8 @@ set(KMS_ELEMENTS_SOURCES
   kmsbasemediamuxer.c
   kmsavmuxer.c
   kmstextoverlay.c
+  kmsstylecompositemixer.c
+  kmsepisodeoverlay.c
 )
 
 set(KMS_ELEMENTS_HEADERS
@@ -36,6 +38,8 @@ set(KMS_ELEMENTS_HEADERS
   kmsbasemediamuxer.h
   kmsavmuxer.h
   kmstextoverlay.h
+  kmsstylecompositemixer.h
+  kmsepisodeoverlay.h
 )
 
 set(ENUM_HEADERS
@@ -60,6 +64,7 @@ include_directories(
   ${CMAKE_CURRENT_BINARY_DIR}
   ${libsoup-2.4_INCLUDE_DIRS}
   ${json-glib-1.0_INCLUDE_DIRS}
+  ${opencv_INCLUDE_DIRS}
 )
 
 target_link_libraries(${LIBRARY_NAME}plugins
@@ -70,6 +75,7 @@ target_link_libraries(${LIBRARY_NAME}plugins
   ${gstreamer-pbutils-1.5_LIBRARIES}
   ${libsoup-2.4_LIBRARIES}
   ${json-glib-1.0_LIBRARIES}
+  ${opencv_LIBRARIES}
 )
 
 install(

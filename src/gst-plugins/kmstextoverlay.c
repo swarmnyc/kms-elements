@@ -129,17 +129,17 @@ kms_text_overlay_connect_textoverlay (KmsTextOverlay * self,
   GstCaps *filtercaps;
   gchar *textMsg = "";
 
-  GST_ERROR ("@rentao type = %d.", type);
+  GST_INFO ("@rentao type = %d.", type);
   if (self->priv->style != NULL) {
     textMsg = self->priv->style;
   }
-  GST_ERROR ("@rentao textMsg = %s.", textMsg);
+  GST_INFO ("@rentao textMsg = %s.", textMsg);
   if (type == KMS_ELEMENT_PAD_TYPE_VIDEO) {
     // textoverlay source code:
     //   https://code.google.com/p/ossbuild/source/browse/trunk/Main/GStreamer/Source/gst-plugins-base/ext/pango/gsttextoverlay.c?spec=svn1012&r=1007
     textoverlay = gst_element_factory_make ("textoverlay", NULL);
     if (textoverlay == NULL) {
-      GST_ERROR ("@rentao textoverlay cannot be created.");
+      GST_INFO ("@rentao textoverlay cannot be created.");
       return;
     }
     videoconvert = gst_element_factory_make ("videoconvert", NULL);
@@ -163,11 +163,11 @@ kms_text_overlay_connect_textoverlay (KmsTextOverlay * self,
         "wrap-mode", 0, NULL);
     sink = gst_element_get_static_pad (videoscale, "sink");
     if (sink == NULL) {
-      GST_ERROR ("@rentao videoconvert sink cannot be created.");
+      GST_INFO ("@rentao videoconvert sink cannot be created.");
       return;
     }
 
-    GST_ERROR ("@rentao linking elements.");
+    GST_INFO ("@rentao linking elements.");
     gst_bin_add_many (GST_BIN (self), videoscale, videoconvert, textoverlay,
         capsfilter, NULL);
     gst_element_link_many (videoscale, videoconvert, capsfilter, textoverlay,
@@ -183,11 +183,11 @@ kms_text_overlay_connect_textoverlay (KmsTextOverlay * self,
 
   target = gst_element_get_static_pad (agnosticbin, "sink");
   if (target == NULL) {
-    GST_ERROR ("@rentao agnosticbin sink cannot be created.");
+    GST_INFO ("@rentao agnosticbin sink cannot be created.");
     return;
   }
 
-  GST_ERROR ("@rentao sink = %" GST_PTR_FORMAT, sink);
+  GST_INFO ("@rentao sink = %" GST_PTR_FORMAT, sink);
   if (sink == NULL)
     kms_element_connect_sink_target (KMS_ELEMENT (self), target, type);
   else
@@ -201,7 +201,7 @@ kms_text_overlay_get_property (GObject * object, guint property_id,
 {
   KmsTextOverlay *self = KMS_TEXT_OVERLAY (object);
 
-  GST_ERROR ("@rentao kms_composite_get_property %d", property_id);
+  GST_INFO ("@rentao kms_composite_get_property %d", property_id);
 
   KMS_TEXT_OVERLAY_LOCK (self);
 
@@ -294,12 +294,12 @@ kms_text_overlay_init (KmsTextOverlay * self)
 {
   self->priv = KMS_TEXT_OVERLAY_GET_PRIVATE (self);
 
-  GST_ERROR ("@rentao kms_text_overlay started");
+  GST_INFO ("@rentao kms_text_overlay started");
   kms_text_overlay_connect_textoverlay (self, KMS_ELEMENT_PAD_TYPE_VIDEO,
       kms_element_get_video_agnosticbin (KMS_ELEMENT (self)));
   kms_text_overlay_connect_textoverlay (self, KMS_ELEMENT_PAD_TYPE_AUDIO,
       kms_element_get_audio_agnosticbin (KMS_ELEMENT (self)));
-  GST_ERROR ("@rentao kms_text_overlay finished.");
+  GST_INFO ("@rentao kms_text_overlay finished.");
 }
 
 gboolean

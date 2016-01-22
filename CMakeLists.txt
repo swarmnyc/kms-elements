@@ -27,6 +27,7 @@ set (GLIB_REQUIRED ^2.38)
 set (SOUP_REQUIRED ^2.40)
 set (NICE_REQUIRED ^0.1.7)
 set (GLIBMM_REQUIRED ^2.37)
+set (OPENCV_REQUIRED ^2.0.0)
 
 #gst-plugins dependencies
 generic_find (LIBNAME gstreamer-1.5 VERSION ${GST_REQUIRED} REQUIRED)
@@ -45,6 +46,7 @@ generic_find (LIBNAME nice VERSION ${NICE_REQUIRED} REQUIRED)
 generic_find (LIBNAME gio-2.0 VERSION ${GLIB_REQUIRED} REQUIRED)
 generic_find (LIBNAME uuid REQUIRED)
 generic_find (LIBNAME json-glib-1.0 REQUIRED)
+generic_find (LIBNAME opencv VERSION ${OPENCV_REQUIRED} REQUIRED)
 
 set (VERSION ${PROJECT_VERSION})
 set (PACKAGE ${PROJECT_NAME})
