@@ -33,6 +33,10 @@
 #include <opencv/highgui.h>
 #include <libsoup/soup.h>
 
+#include <stdlib.h>
+#include <glib-object.h>
+#include <json-glib/json-glib.h>
+
 #define TEMP_PATH "/tmp/XXXXXX"
 #define BLUE_COLOR (cvScalar (255, 0, 0, 0))
 #define SRC_OVERLAY ((double)1)
@@ -50,12 +54,24 @@ GST_DEBUG_CATEGORY_STATIC (kms_episode_overlay_debug_category);
   )                                          \
 )
 
+#define DEFAULT_STYLE NULL
+
 enum
 {
   PROP_0,
-  PROP_IMAGE_TO_OVERLAY,
-  PROP_SHOW_DEBUG_INFO
+  PROP_STYLE
 };
+
+#define MAX_VIEW_COUNT 4
+#define MAX_TEXT_LENGTH 128
+typedef struct _KmsTextViewPrivate
+{
+  int x;
+  int y;
+  int width;
+  int height;
+  gchar text[MAX_TEXT_LENGTH];
+} KmsTextViewPrivate;
 
 struct _KmsEpisodeOverlayPrivate
 {
@@ -68,6 +84,8 @@ struct _KmsEpisodeOverlayPrivate
   GstClockTime dts, pts;
 
   GQueue *events_queue;
+  gchar *style;
+  KmsTextViewPrivate views[MAX_VIEW_COUNT];
 };
 
 /* pad templates */
@@ -203,52 +221,124 @@ end:
   g_free (url);
 }
 
+static gboolean
+kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
+{
+  JsonParser *parser;
+  GError *error;
+  JsonReader *reader;
+  gint width = 0, height = 0, x, y, count, i;
+  const gchar *text;
+
+  parser = json_parser_new ();
+  error = NULL;
+  json_parser_load_from_data (parser, self->priv->style, -1, &error);
+  if (error) {
+    GST_INFO ("@rentao Unable to parse %s, err=%s", self->priv->style,
+        error->message);
+    g_error_free (error);
+    g_object_unref (parser);
+    return FALSE;
+  }
+  reader = json_reader_new (json_parser_get_root (parser));
+
+  if (json_reader_read_member (reader, "views")) {
+    // got views, reset the original first.
+    for (i = 0; i < MAX_VIEW_COUNT; i++) {
+      self->priv->views[i].width = -1;
+      self->priv->views[i].height = -1;
+    }
+  }
+  count = json_reader_count_elements (reader);
+  count = (count < MAX_VIEW_COUNT) ? count : MAX_VIEW_COUNT;
+  for (i = 0; i < count; i++) {
+    json_reader_read_element (reader, i);
+
+    if (json_reader_read_member (reader, "width")) {
+      width = json_reader_get_int_value (reader);
+      self->priv->views[i].width = width;
+      GST_INFO ("@rentao set view[%d] width=%d", i, self->priv->views[i].width);
+      json_reader_end_member (reader);
+    }
+
+    if (json_reader_read_member (reader, "height")) {
+      height = json_reader_get_int_value (reader);
+      self->priv->views[i].height = height;
+      GST_INFO ("@rentao set view[%d] height=%d", i,
+          self->priv->views[i].height);
+      json_reader_end_member (reader);
+    }
+
+    if (json_reader_read_member (reader, "text")) {
+      text = json_reader_get_string_value (reader);
+      if (text != NULL) {
+        g_strlcpy (self->priv->views[i].text, text, MAX_TEXT_LENGTH);
+        GST_INFO ("@rentao set view[%d] text=%s", i, self->priv->views[i].text);
+      }
+      json_reader_end_member (reader);
+    }
+
+    if (json_reader_read_member (reader, "x")) {
+      x = json_reader_get_int_value (reader);
+      self->priv->views[i].x = x;
+      GST_INFO ("@rentao set view[%d] height=%d", i, self->priv->views[i].x);
+      json_reader_end_member (reader);
+    }
+
+    if (json_reader_read_member (reader, "y")) {
+      y = json_reader_get_int_value (reader);
+      self->priv->views[i].y = y;
+      GST_INFO ("@rentao set view[%d] height=%d", i, self->priv->views[i].y);
+      json_reader_end_member (reader);
+    }
+
+    json_reader_end_element (reader);
+  }
+
+  GST_INFO ("@rentao set views' count=%d", count);
+  json_reader_end_member (reader);
+
+  g_object_unref (reader);
+  g_object_unref (parser);
+
+  return TRUE;
+}
+
 static void
 kms_episode_overlay_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec * pspec)
 {
-  KmsEpisodeOverlay *episodeoverlay = KMS_EPISODE_OVERLAY (object);
+  KmsEpisodeOverlay *self = KMS_EPISODE_OVERLAY (object);
 
-  GST_OBJECT_LOCK (episodeoverlay);
+  GST_OBJECT_LOCK (self);
 
   switch (property_id) {
-    case PROP_SHOW_DEBUG_INFO:
-      episodeoverlay->priv->show_debug_info = g_value_get_boolean (value);
-      break;
-    case PROP_IMAGE_TO_OVERLAY:
-      if (episodeoverlay->priv->image_to_overlay != NULL)
-        gst_structure_free (episodeoverlay->priv->image_to_overlay);
-
-      episodeoverlay->priv->image_to_overlay = g_value_dup_boxed (value);
-      kms_episode_overlay_load_image_to_overlay (episodeoverlay);
+    case PROP_STYLE:
+      g_free (self->priv->style);
+      self->priv->style = g_value_dup_string (value);
+      kms_episode_overlay_parse_style (self);
+      kms_episode_overlay_load_image_to_overlay (self);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
   }
-  GST_OBJECT_UNLOCK (episodeoverlay);
+  GST_OBJECT_UNLOCK (self);
 }
 
 static void
 kms_episode_overlay_get_property (GObject * object, guint property_id,
     GValue * value, GParamSpec * pspec)
 {
+  gchar style[512];
   KmsEpisodeOverlay *episodeoverlay = KMS_EPISODE_OVERLAY (object);
-
-  GST_DEBUG_OBJECT (episodeoverlay, "get_property");
 
   GST_OBJECT_LOCK (episodeoverlay);
 
   switch (property_id) {
-    case PROP_SHOW_DEBUG_INFO:
-      g_value_set_boolean (value, episodeoverlay->priv->show_debug_info);
-      break;
-    case PROP_IMAGE_TO_OVERLAY:
-      if (episodeoverlay->priv->image_to_overlay == NULL) {
-        episodeoverlay->priv->image_to_overlay =
-            gst_structure_new_empty ("image_to_overlay");
-      }
-      g_value_set_boxed (value, episodeoverlay->priv->image_to_overlay);
+    case PROP_STYLE:
+      g_snprintf (style, 512, "{}");
+      g_value_set_string (value, style);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -440,49 +530,95 @@ static GstFlowReturn
 kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     GstVideoFrame * frame)
 {
-  KmsEpisodeOverlay *episodeoverlay = KMS_EPISODE_OVERLAY (filter);
+  KmsEpisodeOverlay *self = KMS_EPISODE_OVERLAY (filter);
   GstMapInfo info;
   GstStructure *faces;
   GSList *faces_list;
+  int i;
+  IplImage *curImg;
+
+//  uchar *row;
+  CvFont font;
+  CvPoint ptLT, ptRB;
+  KmsTextViewPrivate *data;
 
   gst_buffer_map (frame->buffer, &info, GST_MAP_READ);
 
-  kms_episode_overlay_initialize_images (episodeoverlay, frame);
-  episodeoverlay->priv->cvImage->imageData = (char *) info.data;
+  kms_episode_overlay_initialize_images (self, frame);
+  self->priv->cvImage->imageData = (char *) info.data;
 
-  GST_OBJECT_LOCK (episodeoverlay);
-  faces = g_queue_pop_head (episodeoverlay->priv->events_queue);
+  curImg = self->priv->cvImage;
+//  row = (uchar *)curImg->imageData;
+//  for (h = 0; h < curImg->height; h++) {
+//    uchar *column = row;
+//    *(column + h + curImg->height * 20) = 0;
+//
+//    *(column + h + curImg->height * 10) = 0;
+//  }
+  for (i = 0; i < MAX_VIEW_COUNT; i++) {
+    data = &self->priv->views[i];
+    if (data->width > 0) {
+      // draw background block.
+      ptLT.x = data->x;         // left
+      ptRB.y = data->y + data->height;  // bottom
+      ptRB.x = ptLT.x + data->width;    // right
+      ptLT.y = ptRB.y - 30;     //top
+      cvRectangle (curImg, ptLT, ptRB, CV_RGB (55, 55, 55), CV_FILLED, 8, 0);
+      // draw leading small color block.
+      ptRB.x = ptLT.x + 3;
+      cvRectangle (curImg, ptLT, ptRB, CV_RGB (255, 91, 0), CV_FILLED, 8, 0);
+      // draw text.
+      ptLT.x += 10;
+      ptLT.y += 20;
+      cvInitFont (&font, CV_FONT_HERSHEY_PLAIN, 1.0f, 1.0f, 0, 1, 8);   //rate of width
+      cvPutText (curImg, data->text, ptLT, &font, CV_RGB (255, 255, 255));
+    }
+  }
+//  p.x = 40;
+//  p.y = 50;
+//  pt1.x = 30;
+//  pt1.y = 30;
+//  pt2.x = 250;
+//  pt2.y = 60;
+//  pt3.x = 33;
+//  pt3.y = 60;
+//  cvRectangle(curImg, pt1, pt2, CV_RGB(55, 55, 55), CV_FILLED, 8, 0 );
+//  cvRectangle(curImg, pt1, pt3, CV_RGB(255, 91, 0), CV_FILLED, 8, 0 );
+//  cvInitFont(&font, CV_FONT_HERSHEY_PLAIN, 1.0f, 1.0f, 0, 1, 8); //rate of width
+//  cvPutText(curImg, "OPEN-Testing", p, &font, CV_RGB(255, 255, 255));
+
+  GST_OBJECT_LOCK (self);
+  faces = g_queue_pop_head (self->priv->events_queue);
 
   while (faces != NULL) {
 
-    kms_episode_overlay_get_timestamp (episodeoverlay, faces);
+    kms_episode_overlay_get_timestamp (self, faces);
     GST_DEBUG ("buffer pts %" G_GUINT64_FORMAT, frame->buffer->pts);
-    GST_DEBUG ("event pts %" G_GUINT64_FORMAT, episodeoverlay->priv->pts);
+    GST_DEBUG ("event pts %" G_GUINT64_FORMAT, self->priv->pts);
     GST_DEBUG ("queue length %d",
-        g_queue_get_length (episodeoverlay->priv->events_queue));
+        g_queue_get_length (self->priv->events_queue));
 
-    if (episodeoverlay->priv->pts == frame->buffer->pts) {
+    if (self->priv->pts == frame->buffer->pts) {
       faces_list = get_faces (faces);
 
       if (faces_list != NULL) {
-        if (episodeoverlay->priv->costume != NULL) {
-          kms_episode_overlay_display_detections_overlay_img (episodeoverlay,
-              faces_list);
+        if (self->priv->costume != NULL) {
+          kms_episode_overlay_display_detections_overlay_img (self, faces_list);
         }
         g_slist_free_full (faces_list, cvrect_free);
       }
       gst_structure_free (faces);
       break;
-    } else if (episodeoverlay->priv->pts < frame->buffer->pts) {
+    } else if (self->priv->pts < frame->buffer->pts) {
       gst_structure_free (faces);
     } else {
-      g_queue_push_head (episodeoverlay->priv->events_queue, faces);
+      g_queue_push_head (self->priv->events_queue, faces);
       break;
     }
-    faces = g_queue_pop_head (episodeoverlay->priv->events_queue);
+    faces = g_queue_pop_head (self->priv->events_queue);
   }
 
-  GST_OBJECT_UNLOCK (episodeoverlay);
+  GST_OBJECT_UNLOCK (self);
 
   gst_buffer_unmap (frame->buffer, &info);
 
@@ -522,6 +658,9 @@ kms_episode_overlay_finalize (GObject * object)
     g_free (episodeoverlay->priv->dir);
   }
 
+  if (episodeoverlay->priv->style != NULL)
+    g_free (episodeoverlay->priv->style);
+
   g_queue_free_full (episodeoverlay->priv->events_queue, dispose_queue_element);
   episodeoverlay->priv->events_queue = NULL;
 
@@ -529,17 +668,28 @@ kms_episode_overlay_finalize (GObject * object)
 }
 
 static void
-kms_episode_overlay_init (KmsEpisodeOverlay * episodeoverlay)
+kms_episode_overlay_init (KmsEpisodeOverlay * self)
 {
-  GST_ERROR ("@rentao");
-  episodeoverlay->priv = KMS_EPISODE_OVERLAY_GET_PRIVATE (episodeoverlay);
+  int i;
 
-  episodeoverlay->priv->show_debug_info = FALSE;
-  episodeoverlay->priv->cvImage = NULL;
-  episodeoverlay->priv->costume = NULL;
-  episodeoverlay->priv->dir_created = FALSE;
+  self->priv = KMS_EPISODE_OVERLAY_GET_PRIVATE (self);
 
-  episodeoverlay->priv->events_queue = g_queue_new ();
+  self->priv->show_debug_info = FALSE;
+  self->priv->cvImage = NULL;
+  self->priv->costume = NULL;
+  self->priv->dir_created = FALSE;
+
+  self->priv->events_queue = g_queue_new ();
+
+  for (i = 0; i < MAX_VIEW_COUNT; i++) {
+    self->priv->views[i].width = -1;
+    self->priv->views[i].height = -1;
+  }
+  self->priv->views[0].width = 200;
+  self->priv->views[0].height = 30;
+  self->priv->views[0].x = 30;
+  self->priv->views[0].y = 300;
+  g_strlcpy (self->priv->views[0].text, "View1-Tao", MAX_TEXT_LENGTH);
 }
 
 static gboolean
@@ -600,14 +750,11 @@ kms_episode_overlay_class_init (KmsEpisodeOverlayClass * klass)
       GST_DEBUG_FUNCPTR (kms_episode_overlay_transform_frame_ip);
 
   /* Properties initialization */
-  g_object_class_install_property (gobject_class, PROP_SHOW_DEBUG_INFO,
-      g_param_spec_boolean ("show-debug-region", "show debug region",
-          "show evaluation regions over the image", FALSE, G_PARAM_READWRITE));
-
-  g_object_class_install_property (gobject_class, PROP_IMAGE_TO_OVERLAY,
-      g_param_spec_boxed ("image-to-overlay", "image to overlay",
-          "set the url of the image to overlay in the image",
-          GST_TYPE_STRUCTURE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  g_object_class_install_property (gobject_class, PROP_STYLE,
+      g_param_spec_string ("style",
+          "The showing style at the episode, like name, message, frame",
+          "Style description(schema like ice candidate)",
+          DEFAULT_STYLE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   klass->base_facedetector_class.parent_class.sink_event =
       GST_DEBUG_FUNCPTR (kms_episode_overlay_sink_events);
@@ -618,7 +765,6 @@ kms_episode_overlay_class_init (KmsEpisodeOverlayClass * klass)
 gboolean
 kms_episode_overlay_plugin_init (GstPlugin * plugin)
 {
-  GST_ERROR ("@rentao");
   return gst_element_register (plugin, PLUGIN_NAME, GST_RANK_NONE,
       KMS_TYPE_EPISODE_OVERLAY);
 }
