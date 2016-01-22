@@ -1288,6 +1288,11 @@ kms_style_composite_mixer_init (KmsStyleCompositeMixer * self)
 
   self->priv->ports = g_hash_table_new_full (g_int_hash, g_int_equal,
       release_gint, kms_style_composite_mixer_port_data_destroy);
+  self->priv->videomixer = NULL;
+  self->priv->audiomixer = NULL;
+  self->priv->videotestsrc = NULL;
+  self->priv->mixer_audio_agnostic = NULL;
+  self->priv->mixer_video_agnostic = NULL;
   self->priv->background_image = NULL;
   self->priv->style = NULL;
   //TODO:Obtain the dimensions of the bigger input stream

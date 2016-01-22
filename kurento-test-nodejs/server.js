@@ -214,7 +214,7 @@ function startPresenter(sessionId, ws, sdpOffer, callback) {
 					if (error) {
 						return callback(error);
 					}
-					var style = {width:800, height:600, 'pad-y':80, background:"http://placeimg.com/800/600/any.jpg", views:[{width:800, height:600, text:"Host Kurento"},{width:800, height:600, text:"Guest: Tao"},{id:3},{text:"Guest: Alex"}]};
+					var style = {width:800, height:600, 'pad-y':160, background:"http://placeimg.com/800/600/any.jpg", views:[{width:800, height:600, text:"Host Kurento"},{width:800, height:600, text:"Guest: Tao"},{id:3},{text:"Guest: Alex"}]};
 					_composite.setStyle(JSON.stringify(style));
 					_composite.getStyle(function(err, ret) {
 						console.log( "getStyle return:" + ret );
