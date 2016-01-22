@@ -64,6 +64,11 @@ enum
 
 #define MAX_VIEW_COUNT 4
 #define MAX_TEXT_LENGTH 128
+#define MSG_BAR_HEIGHt 30
+#define MSG_BAR_BGCOLOR CV_RGB (73, 73, 73)
+#define HOST_BAR_COLOR CV_RGB (255, 91, 0)
+#define GUEST_BAR_COLOR CV_RGB (0, 103, 157)
+#define MSG_BAR_ALPHA 0.85
 typedef struct _KmsTextViewPrivate
 {
   int x;
@@ -535,11 +540,13 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   GstStructure *faces;
   GSList *faces_list;
   int i;
-  IplImage *curImg;
+  IplImage *curImg, *styleZone;
 
 //  uchar *row;
   CvFont font;
-  CvPoint ptLT, ptRB;
+
+//  CvPoint ptLT, ptRB;
+  int left, right, top, bottom;
   KmsTextViewPrivate *data;
 
   gst_buffer_map (frame->buffer, &info, GST_MAP_READ);
@@ -547,6 +554,7 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   kms_episode_overlay_initialize_images (self, frame);
   self->priv->cvImage->imageData = (char *) info.data;
 
+  cvInitFont (&font, CV_FONT_HERSHEY_SIMPLEX, 0.75f, 0.75f, 0, 2, 8);   //rate of width
   curImg = self->priv->cvImage;
 //  row = (uchar *)curImg->imageData;
 //  for (h = 0; h < curImg->height; h++) {
@@ -555,23 +563,66 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
 //
 //    *(column + h + curImg->height * 10) = 0;
 //  }
+
   for (i = 0; i < MAX_VIEW_COUNT; i++) {
     data = &self->priv->views[i];
     if (data->width > 0) {
+      styleZone =
+          cvCreateImage (cvSize (data->width, MSG_BAR_HEIGHt), curImg->depth,
+          curImg->nChannels);
       // draw background block.
-      ptLT.x = data->x;         // left
-      ptRB.y = data->y + data->height;  // bottom
-      ptRB.x = ptLT.x + data->width;    // right
-      ptLT.y = ptRB.y - 30;     //top
-      cvRectangle (curImg, ptLT, ptRB, CV_RGB (55, 55, 55), CV_FILLED, 8, 0);
+      cvRectangle (styleZone, cvPoint (0, 0), cvPoint (data->width,
+              MSG_BAR_HEIGHt), MSG_BAR_BGCOLOR, CV_FILLED, 8, 0);
       // draw leading small color block.
-      ptRB.x = ptLT.x + 3;
-      cvRectangle (curImg, ptLT, ptRB, CV_RGB (255, 91, 0), CV_FILLED, 8, 0);
-      // draw text.
-      ptLT.x += 10;
-      ptLT.y += 20;
-      cvInitFont (&font, CV_FONT_HERSHEY_PLAIN, 1.0f, 1.0f, 0, 1, 8);   //rate of width
-      cvPutText (curImg, data->text, ptLT, &font, CV_RGB (255, 255, 255));
+      if (i == 0)
+        cvRectangle (styleZone, cvPoint (0, 0), cvPoint (3, MSG_BAR_HEIGHt),
+            HOST_BAR_COLOR, CV_FILLED, 8, 0);
+      else
+        cvRectangle (styleZone, cvPoint (0, 0), cvPoint (3, MSG_BAR_HEIGHt),
+            GUEST_BAR_COLOR, CV_FILLED, 8, 0);
+
+      // set ROI
+      left = data->x;           // left
+      bottom = data->y + data->height;  // bottom
+      right = left + data->width;       // right
+      top = bottom - MSG_BAR_HEIGHt;    //top
+      cvSetImageROI (curImg, cvRect (left, top, right - left, bottom - top));
+
+      // draw style bar alpha transparency to source frame.
+      cvAddWeighted (curImg, 1 - MSG_BAR_ALPHA, styleZone, MSG_BAR_ALPHA, 0,
+          curImg);
+
+      // draw msg text.
+      cvPutText (curImg, data->text, cvPoint (10, 20), &font, CV_RGB (255, 255,
+              255));
+
+      // release ROI
+      cvResetImageROI (curImg);
+
+      // draw boundary
+      cvRectangle (curImg, cvPoint (data->x, data->y),
+          cvPoint (data->x + data->width, data->y + data->height), CV_RGB (255,
+              255, 255), 1, 8, 0);
+      cvRectangle (curImg, cvPoint (data->x - 1, data->y - 1),
+          cvPoint (data->x + data->width + 1, data->y + data->height + 1),
+          CV_RGB (255, 255, 255), 1, 8, 0);
+
+//      // draw background block.
+//      ptLT.x = data->x;         // left
+//      ptRB.y = data->y + data->height;  // bottom
+//      ptRB.x = ptLT.x + data->width;    // right
+//      ptLT.y = ptRB.y - 30;     //top
+//      cvRectangle (curImg, ptLT, ptRB, CV_RGB (55, 55, 55), CV_FILLED, 8, 0);
+//      // draw leading small color block.
+//      ptRB.x = ptLT.x + 3;
+//      cvRectangle (curImg, ptLT, ptRB, CV_RGB (255, 91, 0), CV_FILLED, 8, 0);
+//      // draw text.
+//      ptLT.x += 10;
+//      ptLT.y += 20;
+//      cvInitFont (&font, CV_FONT_HERSHEY_PLAIN, 1.0f, 1.0f, 0, 1, 8);   //rate of width
+//      cvPutText (curImg, data->text, ptLT, &font, CV_RGB (255, 255, 255));
+
+      cvReleaseImage (&styleZone);
     }
   }
 //  p.x = 40;
