@@ -157,6 +157,9 @@ wss.on('connection', function(ws) {
 					views_style.views[0].width -= 64;
 					views_style.views[0].height -= 48;
 					presenter.composite.setStyle(JSON.stringify(views_style));
+
+					//var style = {background:"http://placeimg.com/800/600/any.jpg"};
+					//presenter.composite.setStyle(JSON.stringify(style));
 				}
 				ws.send(JSON.stringify({
 					id : 'action2',

@@ -80,7 +80,7 @@ typedef struct _KmsTextViewPrivate
 
 struct _KmsEpisodeOverlayPrivate
 {
-  IplImage *cvImage, *costume;
+  IplImage *cvImage, *costume, *background, *background_image;
   GstStructure *image_to_overlay;
 
   gdouble offsetXPercent, offsetYPercent, widthPercent, heightPercent;
@@ -123,7 +123,7 @@ kms_episode_overlay_is_valid_uri (const gchar * url)
 }
 
 static void
-load_from_url (gchar * file_name, gchar * url)
+load_from_url (gchar * file_name, const gchar * url)
 {
   SoupSession *session;
   SoupMessage *msg;
@@ -229,11 +229,12 @@ end:
 static gboolean
 kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
 {
+  IplImage *backgroundImg = NULL;
   JsonParser *parser;
   GError *error;
   JsonReader *reader;
   gint width = 0, height = 0, x, y, count, i;
-  const gchar *text;
+  const gchar *text, *url;
 
   parser = json_parser_new ();
   error = NULL;
@@ -247,61 +248,118 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
   }
   reader = json_reader_new (json_parser_get_root (parser));
 
+  GST_INFO ("@rentao start parse(%s)", self->priv->style);
+
+  // handle background image.
+  if (json_reader_read_member (reader, "background_image")) {
+    url = json_reader_get_string_value (reader);
+//    url = "/etc/kurento/bg.jpg";
+    if (!self->priv->dir_created) {
+      gchar *d = g_strdup (TEMP_PATH);
+
+      self->priv->dir = g_mkdtemp (d);
+      self->priv->dir_created = TRUE;
+      GST_INFO ("@rentao create tmp folder fot download image. %s", d);
+    }
+
+    backgroundImg = cvLoadImage (url, CV_LOAD_IMAGE_UNCHANGED);
+
+    if (backgroundImg != NULL) {
+      GST_DEBUG ("Image loaded from file");
+    } else {
+      // load from url.
+      if (kms_episode_overlay_is_valid_uri (url)) {
+        gchar *file_name = g_strconcat (self->priv->dir, "/image.png", NULL);
+
+        load_from_url (file_name, url);
+        backgroundImg = cvLoadImage (file_name, CV_LOAD_IMAGE_UNCHANGED);
+        g_remove (file_name);
+        g_free (file_name);
+      }
+    }
+
+    if (self->priv->background_image != NULL) {
+      cvReleaseImage (&self->priv->background_image);
+      self->priv->background_image = NULL;
+      // also reset the backgroud image.
+    }
+    if (backgroundImg == NULL) {
+      GST_INFO ("@rentao Image not loaded from URL: %s", url);
+    } else {
+      GST_INFO ("@rentao Image loaded from URL: %s", url);
+      self->priv->background_image = backgroundImg;
+      if (self->priv->background != NULL) {
+        cvReleaseImage (&self->priv->background);
+        self->priv->background = NULL;
+        GST_INFO ("@rentao reset background");
+      }
+    }
+  }
+  json_reader_end_element (reader);
+
+  // handle views.
   if (json_reader_read_member (reader, "views")) {
-    // got views, reset the original first.
+    // got views, reset the original first,
     for (i = 0; i < MAX_VIEW_COUNT; i++) {
       self->priv->views[i].width = -1;
       self->priv->views[i].height = -1;
     }
-  }
-  count = json_reader_count_elements (reader);
-  count = (count < MAX_VIEW_COUNT) ? count : MAX_VIEW_COUNT;
-  for (i = 0; i < count; i++) {
-    json_reader_read_element (reader, i);
-
-    if (json_reader_read_member (reader, "width")) {
-      width = json_reader_get_int_value (reader);
-      self->priv->views[i].width = width;
-      GST_INFO ("@rentao set view[%d] width=%d", i, self->priv->views[i].width);
-      json_reader_end_member (reader);
+    // also reset the backgroud image.
+    if (self->priv->background != NULL) {
+      cvReleaseImage (&self->priv->background);
+      self->priv->background = NULL;
+      GST_INFO ("@rentao reset background");
     }
+    count = json_reader_count_elements (reader);
+    count = (count < MAX_VIEW_COUNT) ? count : MAX_VIEW_COUNT;
+    for (i = 0; i < count; i++) {
+      json_reader_read_element (reader, i);
 
-    if (json_reader_read_member (reader, "height")) {
-      height = json_reader_get_int_value (reader);
-      self->priv->views[i].height = height;
-      GST_INFO ("@rentao set view[%d] height=%d", i,
-          self->priv->views[i].height);
-      json_reader_end_member (reader);
-    }
-
-    if (json_reader_read_member (reader, "text")) {
-      text = json_reader_get_string_value (reader);
-      if (text != NULL) {
-        g_strlcpy (self->priv->views[i].text, text, MAX_TEXT_LENGTH);
-        GST_INFO ("@rentao set view[%d] text=%s", i, self->priv->views[i].text);
+      if (json_reader_read_member (reader, "width")) {
+        width = json_reader_get_int_value (reader);
+        self->priv->views[i].width = width;
+        GST_INFO ("@rentao set view[%d] width=%d", i,
+            self->priv->views[i].width);
+        json_reader_end_member (reader);
       }
-      json_reader_end_member (reader);
-    }
 
-    if (json_reader_read_member (reader, "x")) {
-      x = json_reader_get_int_value (reader);
-      self->priv->views[i].x = x;
-      GST_INFO ("@rentao set view[%d] height=%d", i, self->priv->views[i].x);
-      json_reader_end_member (reader);
-    }
+      if (json_reader_read_member (reader, "height")) {
+        height = json_reader_get_int_value (reader);
+        self->priv->views[i].height = height;
+        GST_INFO ("@rentao set view[%d] height=%d", i,
+            self->priv->views[i].height);
+        json_reader_end_member (reader);
+      }
 
-    if (json_reader_read_member (reader, "y")) {
-      y = json_reader_get_int_value (reader);
-      self->priv->views[i].y = y;
-      GST_INFO ("@rentao set view[%d] height=%d", i, self->priv->views[i].y);
-      json_reader_end_member (reader);
-    }
+      if (json_reader_read_member (reader, "text")) {
+        text = json_reader_get_string_value (reader);
+        if (text != NULL) {
+          g_strlcpy (self->priv->views[i].text, text, MAX_TEXT_LENGTH);
+          GST_INFO ("@rentao set view[%d] text=%s", i,
+              self->priv->views[i].text);
+        }
+        json_reader_end_member (reader);
+      }
 
-    json_reader_end_element (reader);
+      if (json_reader_read_member (reader, "x")) {
+        x = json_reader_get_int_value (reader);
+        self->priv->views[i].x = x;
+        GST_INFO ("@rentao set view[%d] left=%d", i, self->priv->views[i].x);
+        json_reader_end_member (reader);
+      }
+
+      if (json_reader_read_member (reader, "y")) {
+        y = json_reader_get_int_value (reader);
+        self->priv->views[i].y = y;
+        GST_INFO ("@rentao set view[%d] top=%d", i, self->priv->views[i].y);
+        json_reader_end_member (reader);
+      }
+
+      json_reader_end_element (reader);
+    }
+    GST_INFO ("@rentao set views' count=%d", count);
+    json_reader_end_member (reader);
   }
-
-  GST_INFO ("@rentao set views' count=%d", count);
-  json_reader_end_member (reader);
 
   g_object_unref (reader);
   g_object_unref (parser);
@@ -322,7 +380,8 @@ kms_episode_overlay_set_property (GObject * object, guint property_id,
       g_free (self->priv->style);
       self->priv->style = g_value_dup_string (value);
       kms_episode_overlay_parse_style (self);
-      kms_episode_overlay_load_image_to_overlay (self);
+      if (0)
+        kms_episode_overlay_load_image_to_overlay (self);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -563,6 +622,41 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
 //
 //    *(column + h + curImg->height * 10) = 0;
 //  }
+//  if (self->priv->background == NULL) {
+//    GST_INFO("@rentao background NULL");
+//  } else {
+//    GST_INFO("@rentao background NOT NULL");
+//  }
+//  if (self->priv->background_image == NULL) {
+//    GST_INFO("@rentao costume NULL");
+//  } else {
+//    GST_INFO("@rentao costume NOT NULL");
+//  }
+
+  // try to build the background.
+  if (self->priv->background == NULL && self->priv->background_image != NULL) {
+    styleZone =
+        cvCreateImage (cvGetSize (self->priv->background_image), curImg->depth,
+        curImg->nChannels);
+    cvCopy (self->priv->background_image, styleZone, NULL);
+    for (i = 0; i < MAX_VIEW_COUNT; i++) {
+      data = &self->priv->views[i];
+      if (data->width > 0) {
+        cvRectangle (styleZone, cvPoint (data->x, data->y),
+            cvPoint (data->x + data->width, data->y + data->height), CV_RGB (0,
+                0, 0), CV_FILLED, 8, 0);
+      }
+    }
+    self->priv->background = styleZone;
+    GST_INFO ("@rentao build background size=%d,%d",
+        cvGetSize (styleZone).width, cvGetSize (styleZone).height);
+  }
+  // draw the background to source frame first.
+  if (self->priv->background != NULL) {
+//    cvCopy(self->priv->background_image, curImg, NULL);
+    cvAdd (curImg, self->priv->background, curImg, NULL);
+//    GST_INFO("@rentao add background to source frame");
+  }
 
   for (i = 0; i < MAX_VIEW_COUNT; i++) {
     data = &self->priv->views[i];
@@ -638,38 +732,41 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
 //  cvInitFont(&font, CV_FONT_HERSHEY_PLAIN, 1.0f, 1.0f, 0, 1, 8); //rate of width
 //  cvPutText(curImg, "OPEN-Testing", p, &font, CV_RGB(255, 255, 255));
 
-  GST_OBJECT_LOCK (self);
-  faces = g_queue_pop_head (self->priv->events_queue);
-
-  while (faces != NULL) {
-
-    kms_episode_overlay_get_timestamp (self, faces);
-    GST_DEBUG ("buffer pts %" G_GUINT64_FORMAT, frame->buffer->pts);
-    GST_DEBUG ("event pts %" G_GUINT64_FORMAT, self->priv->pts);
-    GST_DEBUG ("queue length %d",
-        g_queue_get_length (self->priv->events_queue));
-
-    if (self->priv->pts == frame->buffer->pts) {
-      faces_list = get_faces (faces);
-
-      if (faces_list != NULL) {
-        if (self->priv->costume != NULL) {
-          kms_episode_overlay_display_detections_overlay_img (self, faces_list);
-        }
-        g_slist_free_full (faces_list, cvrect_free);
-      }
-      gst_structure_free (faces);
-      break;
-    } else if (self->priv->pts < frame->buffer->pts) {
-      gst_structure_free (faces);
-    } else {
-      g_queue_push_head (self->priv->events_queue, faces);
-      break;
-    }
+  if (0) {
+    GST_OBJECT_LOCK (self);
     faces = g_queue_pop_head (self->priv->events_queue);
-  }
 
-  GST_OBJECT_UNLOCK (self);
+    while (faces != NULL) {
+
+      kms_episode_overlay_get_timestamp (self, faces);
+      GST_DEBUG ("buffer pts %" G_GUINT64_FORMAT, frame->buffer->pts);
+      GST_DEBUG ("event pts %" G_GUINT64_FORMAT, self->priv->pts);
+      GST_DEBUG ("queue length %d",
+          g_queue_get_length (self->priv->events_queue));
+
+      if (self->priv->pts == frame->buffer->pts) {
+        faces_list = get_faces (faces);
+
+        if (faces_list != NULL) {
+          if (self->priv->costume != NULL) {
+            kms_episode_overlay_display_detections_overlay_img (self,
+                faces_list);
+          }
+          g_slist_free_full (faces_list, cvrect_free);
+        }
+        gst_structure_free (faces);
+        break;
+      } else if (self->priv->pts < frame->buffer->pts) {
+        gst_structure_free (faces);
+      } else {
+        g_queue_push_head (self->priv->events_queue, faces);
+        break;
+      }
+      faces = g_queue_pop_head (self->priv->events_queue);
+    }
+
+    GST_OBJECT_UNLOCK (self);
+  }
 
   gst_buffer_unmap (frame->buffer, &info);
 
@@ -701,6 +798,12 @@ kms_episode_overlay_finalize (GObject * object)
   if (episodeoverlay->priv->costume != NULL)
     cvReleaseImage (&episodeoverlay->priv->costume);
 
+  if (episodeoverlay->priv->background_image != NULL)
+    cvReleaseImage (&episodeoverlay->priv->background_image);
+
+  if (episodeoverlay->priv->background != NULL)
+    cvReleaseImage (&episodeoverlay->priv->background);
+
   if (episodeoverlay->priv->image_to_overlay != NULL)
     gst_structure_free (episodeoverlay->priv->image_to_overlay);
 
@@ -728,7 +831,10 @@ kms_episode_overlay_init (KmsEpisodeOverlay * self)
   self->priv->show_debug_info = FALSE;
   self->priv->cvImage = NULL;
   self->priv->costume = NULL;
+  self->priv->background_image = NULL;
+  self->priv->background = NULL;
   self->priv->dir_created = FALSE;
+  self->priv->style = NULL;
 
   self->priv->events_queue = g_queue_new ();
 
@@ -736,11 +842,11 @@ kms_episode_overlay_init (KmsEpisodeOverlay * self)
     self->priv->views[i].width = -1;
     self->priv->views[i].height = -1;
   }
-  self->priv->views[0].width = 200;
-  self->priv->views[0].height = 30;
-  self->priv->views[0].x = 30;
-  self->priv->views[0].y = 300;
-  g_strlcpy (self->priv->views[0].text, "View1-Tao", MAX_TEXT_LENGTH);
+//  self->priv->views[0].width = 200;
+//  self->priv->views[0].height = 30;
+//  self->priv->views[0].x = 30;
+//  self->priv->views[0].y = 300;
+//  g_strlcpy (self->priv->views[0].text, "View1-Tao", MAX_TEXT_LENGTH);
 }
 
 static gboolean
