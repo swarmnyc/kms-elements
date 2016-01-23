@@ -272,7 +272,7 @@ kms_text_overlay_class_init (KmsTextOverlayClass * klass)
 
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
       "TextOverlay", "Generic/KmsElement", "Kurento text_overlay",
-      "Jose Antonio Santos Cadenas <santoscadenas@gmail.com>");
+      "Tao Ren <tao@swarmnyc.com, tour.ren.gz@gmail.com>");
   gobject_class->dispose = GST_DEBUG_FUNCPTR (kms_text_overlay_dispose);
   gobject_class->finalize = GST_DEBUG_FUNCPTR (kms_text_overlay_finalize);
   gobject_class->set_property = kms_text_overlay_set_property;
