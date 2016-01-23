@@ -11,6 +11,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * Lesser General Public License for more details.
  *
+ * Create by Tao Ren <tao@swarmnyc.com> <tour.ren.gz@gmail.com>
  */
 #define _XOPEN_SOURCE 500
 
@@ -849,31 +850,6 @@ kms_episode_overlay_init (KmsEpisodeOverlay * self)
 //  g_strlcpy (self->priv->views[0].text, "View1-Tao", MAX_TEXT_LENGTH);
 }
 
-static gboolean
-kms_episode_overlay_sink_events (GstBaseTransform * trans, GstEvent * event)
-{
-  KmsEpisodeOverlay *episodeoverlay = KMS_EPISODE_OVERLAY (trans);
-
-  switch (GST_EVENT_TYPE (event)) {
-    case GST_EVENT_CUSTOM_DOWNSTREAM:
-    {
-      GstStructure *faces;
-
-      GST_OBJECT_LOCK (episodeoverlay);
-
-      faces = gst_structure_copy (gst_event_get_structure (event));
-      g_queue_push_tail (episodeoverlay->priv->events_queue, faces);
-
-      GST_OBJECT_UNLOCK (episodeoverlay);
-      break;
-    }
-    default:
-      break;
-  }
-
-  return gst_pad_event_default (trans->sinkpad, GST_OBJECT (trans), event);
-}
-
 static void
 kms_episode_overlay_class_init (KmsEpisodeOverlayClass * klass)
 {
@@ -894,9 +870,9 @@ kms_episode_overlay_class_init (KmsEpisodeOverlayClass * klass)
           gst_caps_from_string (VIDEO_SINK_CAPS)));
 
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
-      "image overlay element", "Video/Filter",
-      "Set a defined image in a defined position",
-      "David Fernandez <d.fernandezlop@gmail.com>");
+      "episode style overlay element", "Video/Filter",
+      "Set a style like background, frameset, msg bar over the source frame",
+      " Tao Ren <tao@swarmnyc.com> <tour.ren.gz@gmail.com>");
 
   gobject_class->set_property = kms_episode_overlay_set_property;
   gobject_class->get_property = kms_episode_overlay_get_property;
@@ -912,9 +888,6 @@ kms_episode_overlay_class_init (KmsEpisodeOverlayClass * klass)
           "The showing style at the episode, like name, message, frame",
           "Style description(schema like ice candidate)",
           DEFAULT_STYLE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  klass->base_facedetector_class.parent_class.sink_event =
-      GST_DEBUG_FUNCPTR (kms_episode_overlay_sink_events);
 
   g_type_class_add_private (klass, sizeof (KmsEpisodeOverlayPrivate));
 }
