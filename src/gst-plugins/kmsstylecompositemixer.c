@@ -305,7 +305,8 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
   pad_top = self->priv->pad_y / 2 + line_weight;
 
   g_snprintf (jsonStyle, 2048,
-      "{'width':%d, 'height':%d, 'views':[", o_width, o_height);
+      "{'width':%d, 'height':%d, 'enable':%d, 'views':[", o_width, o_height,
+      (mappedCount <= 1) ? 0 : 1);
 
   // draw the views.
   curColumn = 0;
@@ -323,6 +324,16 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       src_width = o_width;
     if (src_height < 0)
       src_height = o_height;
+
+    // only one view, show it full screen.
+    if (mappedCount <= 1) {
+      src_width = o_width;
+      src_height = o_height;
+      v_width = o_width;
+      v_height = o_height;
+      left = 0;
+      top = 0;
+    }
 
     filtercaps =
         gst_caps_new_simple ("video/x-raw",

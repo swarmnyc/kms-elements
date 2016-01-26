@@ -92,6 +92,7 @@ struct _KmsEpisodeOverlayPrivate
   GQueue *events_queue;
   gchar *style;
   KmsTextViewPrivate views[MAX_VIEW_COUNT];
+  gint enable;
 };
 
 /* pad templates */
@@ -251,10 +252,16 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
 
   GST_INFO ("@rentao start parse(%s)", self->priv->style);
 
+  // handle enable.
+  if (json_reader_read_member (reader, "enable")) {
+    self->priv->enable = json_reader_get_int_value (reader);
+    GST_INFO ("@rentao set episodeoverlay enable=%d", self->priv->enable);
+  }
+  json_reader_end_element (reader);
+
   // handle background image.
   if (json_reader_read_member (reader, "background_image")) {
     url = json_reader_get_string_value (reader);
-//    url = "/etc/kurento/bg.jpg";
     if (!self->priv->dir_created) {
       gchar *d = g_strdup (TEMP_PATH);
 
@@ -413,87 +420,6 @@ kms_episode_overlay_get_property (GObject * object, guint property_id,
 }
 
 static void
-kms_episode_overlay_display_detections_overlay_img (KmsEpisodeOverlay *
-    episodeoverlay, const GSList * faces_list)
-{
-  const GSList *iterator = NULL;
-
-  for (iterator = faces_list; iterator; iterator = iterator->next) {
-    CvRect *r = iterator->data;
-    IplImage *costumeAux;
-    int w, h;
-    uchar *row, *image_row;
-
-    if ((episodeoverlay->priv->heightPercent == 0) ||
-        (episodeoverlay->priv->widthPercent == 0)) {
-      continue;
-    }
-
-    r->x = r->x + (r->width * (episodeoverlay->priv->offsetXPercent));
-    r->y = r->y + (r->height * (episodeoverlay->priv->offsetYPercent));
-    r->height = r->height * (episodeoverlay->priv->heightPercent);
-    r->width = r->width * (episodeoverlay->priv->widthPercent);
-
-    costumeAux = cvCreateImage (cvSize (r->width, r->height),
-        episodeoverlay->priv->costume->depth,
-        episodeoverlay->priv->costume->nChannels);
-    cvResize (episodeoverlay->priv->costume, costumeAux, CV_INTER_LINEAR);
-
-    row = (uchar *) costumeAux->imageData;
-    image_row = (uchar *) episodeoverlay->priv->cvImage->imageData +
-        (r->y * episodeoverlay->priv->cvImage->widthStep);
-
-    for (h = 0; h < costumeAux->height; h++) {
-
-      uchar *column = row;
-      uchar *image_column = image_row + (r->x * 3);
-
-      for (w = 0; w < costumeAux->width; w++) {
-        /* Check if point is inside overlay boundaries */
-        if (((w + r->x) < episodeoverlay->priv->cvImage->width)
-            && ((w + r->x) >= 0)) {
-          if (((h + r->y) < episodeoverlay->priv->cvImage->height)
-              && ((h + r->y) >= 0)) {
-
-            if (episodeoverlay->priv->costume->nChannels == 1) {
-              *(image_column) = (uchar) (*(column));
-              *(image_column + 1) = (uchar) (*(column));
-              *(image_column + 2) = (uchar) (*(column));
-            } else if (episodeoverlay->priv->costume->nChannels == 3) {
-              *(image_column) = (uchar) (*(column));
-              *(image_column + 1) = (uchar) (*(column + 1));
-              *(image_column + 2) = (uchar) (*(column + 2));
-            } else if (episodeoverlay->priv->costume->nChannels == 4) {
-              double proportion =
-                  ((double) *(uchar *) (column + 3)) / (double) 255;
-              double overlay = SRC_OVERLAY * proportion;
-              double original = 1 - overlay;
-
-              *image_column =
-                  (uchar) ((*column * overlay) + (*image_column * original));
-              *(image_column + 1) =
-                  (uchar) ((*(column + 1) * overlay) + (*(image_column +
-                          1) * original));
-              *(image_column + 2) =
-                  (uchar) ((*(column + 2) * overlay) + (*(image_column +
-                          2) * original));
-            }
-          }
-        }
-
-        column += episodeoverlay->priv->costume->nChannels;
-        image_column += episodeoverlay->priv->cvImage->nChannels;
-      }
-
-      row += costumeAux->widthStep;
-      image_row += episodeoverlay->priv->cvImage->widthStep;
-    }
-
-    cvReleaseImage (&costumeAux);
-  }
-}
-
-static void
 kms_episode_overlay_initialize_images (KmsEpisodeOverlay * episodeoverlay,
     GstVideoFrame * frame)
 {
@@ -531,83 +457,21 @@ remove_recursive (const gchar * path)
   nftw (path, delete_file, 64, FTW_DEPTH | FTW_PHYS);
 }
 
-static GSList *
-get_faces (GstStructure * faces)
-{
-  gint len, aux;
-  GSList *list = NULL;
-
-  len = gst_structure_n_fields (faces);
-
-  for (aux = 0; aux < len; aux++) {
-    GstStructure *face;
-    gboolean ret;
-
-    const gchar *name = gst_structure_nth_field_name (faces, aux);
-
-    if (g_strcmp0 (name, "timestamp") == 0) {
-      continue;
-    }
-
-    ret = gst_structure_get (faces, name, GST_TYPE_STRUCTURE, &face, NULL);
-
-    if (ret) {
-      CvRect *aux = g_slice_new0 (CvRect);
-
-      gst_structure_get (face, "x", G_TYPE_UINT, &aux->x, NULL);
-      gst_structure_get (face, "y", G_TYPE_UINT, &aux->y, NULL);
-      gst_structure_get (face, "width", G_TYPE_UINT, &aux->width, NULL);
-      gst_structure_get (face, "height", G_TYPE_UINT, &aux->height, NULL);
-      gst_structure_free (face);
-      list = g_slist_append (list, aux);
-    }
-  }
-  return list;
-}
-
-static void
-kms_episode_overlay_get_timestamp (KmsEpisodeOverlay * episodeoverlay,
-    GstStructure * faces)
-{
-  GstStructure *timestamp;
-  gboolean ret;
-
-  ret =
-      gst_structure_get (faces, "timestamp", GST_TYPE_STRUCTURE, &timestamp,
-      NULL);
-  if (ret) {
-    gst_structure_get (timestamp, "dts", G_TYPE_UINT64,
-        &episodeoverlay->priv->dts, NULL);
-    gst_structure_get (timestamp, "pts", G_TYPE_UINT64,
-        &episodeoverlay->priv->pts, NULL);
-    gst_structure_free (timestamp);
-  }
-
-}
-
-static void
-cvrect_free (gpointer data)
-{
-  g_slice_free (CvRect, data);
-}
-
 static GstFlowReturn
 kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     GstVideoFrame * frame)
 {
   KmsEpisodeOverlay *self = KMS_EPISODE_OVERLAY (filter);
   GstMapInfo info;
-  GstStructure *faces;
-  GSList *faces_list;
   int i;
   IplImage *curImg, *styleZone;
-
-//  uchar *row;
   CvFont font;
-
-//  CvPoint ptLT, ptRB;
   int left, right, top, bottom;
   KmsTextViewPrivate *data;
+
+  // plug-in now is disabled.
+  if (self->priv->enable == 0)
+    return GST_FLOW_OK;
 
   gst_buffer_map (frame->buffer, &info, GST_MAP_READ);
 
@@ -616,23 +480,6 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
 
   cvInitFont (&font, CV_FONT_HERSHEY_SIMPLEX, 0.75f, 0.75f, 0, 2, 8);   //rate of width
   curImg = self->priv->cvImage;
-//  row = (uchar *)curImg->imageData;
-//  for (h = 0; h < curImg->height; h++) {
-//    uchar *column = row;
-//    *(column + h + curImg->height * 20) = 0;
-//
-//    *(column + h + curImg->height * 10) = 0;
-//  }
-//  if (self->priv->background == NULL) {
-//    GST_INFO("@rentao background NULL");
-//  } else {
-//    GST_INFO("@rentao background NOT NULL");
-//  }
-//  if (self->priv->background_image == NULL) {
-//    GST_INFO("@rentao costume NULL");
-//  } else {
-//    GST_INFO("@rentao costume NOT NULL");
-//  }
 
   // try to build the background.
   if (self->priv->background == NULL && self->priv->background_image != NULL) {
@@ -702,71 +549,8 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
           cvPoint (data->x + data->width + 1, data->y + data->height + 1),
           CV_RGB (255, 255, 255), 1, 8, 0);
 
-//      // draw background block.
-//      ptLT.x = data->x;         // left
-//      ptRB.y = data->y + data->height;  // bottom
-//      ptRB.x = ptLT.x + data->width;    // right
-//      ptLT.y = ptRB.y - 30;     //top
-//      cvRectangle (curImg, ptLT, ptRB, CV_RGB (55, 55, 55), CV_FILLED, 8, 0);
-//      // draw leading small color block.
-//      ptRB.x = ptLT.x + 3;
-//      cvRectangle (curImg, ptLT, ptRB, CV_RGB (255, 91, 0), CV_FILLED, 8, 0);
-//      // draw text.
-//      ptLT.x += 10;
-//      ptLT.y += 20;
-//      cvInitFont (&font, CV_FONT_HERSHEY_PLAIN, 1.0f, 1.0f, 0, 1, 8);   //rate of width
-//      cvPutText (curImg, data->text, ptLT, &font, CV_RGB (255, 255, 255));
-
       cvReleaseImage (&styleZone);
     }
-  }
-//  p.x = 40;
-//  p.y = 50;
-//  pt1.x = 30;
-//  pt1.y = 30;
-//  pt2.x = 250;
-//  pt2.y = 60;
-//  pt3.x = 33;
-//  pt3.y = 60;
-//  cvRectangle(curImg, pt1, pt2, CV_RGB(55, 55, 55), CV_FILLED, 8, 0 );
-//  cvRectangle(curImg, pt1, pt3, CV_RGB(255, 91, 0), CV_FILLED, 8, 0 );
-//  cvInitFont(&font, CV_FONT_HERSHEY_PLAIN, 1.0f, 1.0f, 0, 1, 8); //rate of width
-//  cvPutText(curImg, "OPEN-Testing", p, &font, CV_RGB(255, 255, 255));
-
-  if (0) {
-    GST_OBJECT_LOCK (self);
-    faces = g_queue_pop_head (self->priv->events_queue);
-
-    while (faces != NULL) {
-
-      kms_episode_overlay_get_timestamp (self, faces);
-      GST_DEBUG ("buffer pts %" G_GUINT64_FORMAT, frame->buffer->pts);
-      GST_DEBUG ("event pts %" G_GUINT64_FORMAT, self->priv->pts);
-      GST_DEBUG ("queue length %d",
-          g_queue_get_length (self->priv->events_queue));
-
-      if (self->priv->pts == frame->buffer->pts) {
-        faces_list = get_faces (faces);
-
-        if (faces_list != NULL) {
-          if (self->priv->costume != NULL) {
-            kms_episode_overlay_display_detections_overlay_img (self,
-                faces_list);
-          }
-          g_slist_free_full (faces_list, cvrect_free);
-        }
-        gst_structure_free (faces);
-        break;
-      } else if (self->priv->pts < frame->buffer->pts) {
-        gst_structure_free (faces);
-      } else {
-        g_queue_push_head (self->priv->events_queue, faces);
-        break;
-      }
-      faces = g_queue_pop_head (self->priv->events_queue);
-    }
-
-    GST_OBJECT_UNLOCK (self);
   }
 
   gst_buffer_unmap (frame->buffer, &info);
@@ -836,6 +620,7 @@ kms_episode_overlay_init (KmsEpisodeOverlay * self)
   self->priv->background = NULL;
   self->priv->dir_created = FALSE;
   self->priv->style = NULL;
+  self->priv->enable = 1;
 
   self->priv->events_queue = g_queue_new ();
 
