@@ -99,6 +99,7 @@ GST_STATIC_PAD_TEMPLATE (VIDEO_SRC_PAD_NAME_COMP,
 #define MAX_TEXT_LENGTH 128
 typedef struct _KmsConpositeViewPrivate
 {
+  int id;
   int width;
   int height;
   gchar text[MAX_TEXT_LENGTH];
@@ -151,7 +152,8 @@ typedef struct _KmsStyleCompositeMixerData
   gulong latency_probe_id;
   GstPad *video_mixer_pad;
   GstPad *tee_sink_pad;
-  GstElement *mixer_endpoint;
+  GstElement *mixer_end_point;
+  gint viewId;
 } KmsStyleCompositeMixerData;
 
 #define KMS_STYLE_COMPOSITE_MIXER_REF(data) \
@@ -183,6 +185,8 @@ compare_port_data (gconstpointer a, gconstpointer b)
   KmsStyleCompositeMixerData *port_data_a = (KmsStyleCompositeMixerData *) a;
   KmsStyleCompositeMixerData *port_data_b = (KmsStyleCompositeMixerData *) b;
 
+  if (port_data_a->viewId != port_data_b->viewId)
+    return port_data_a->viewId - port_data_b->viewId;
   return port_data_a->id - port_data_b->id;
 }
 
@@ -219,11 +223,10 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
 {
   KmsStyleCompositeMixer *self = KMS_STYLE_COMPOSITE_MIXER (data);
   GstCaps *filtercaps;
-  gint counter, n_columns, n_rows;
+  gint n_columns, n_rows;
   GList *l;
   GList *values = g_hash_table_get_values (self->priv->ports);
   gint content_width, content_height;
-  gint bitrate = 0;
   gchar jsonStyle[2048];
   gchar jsonView[512];
 
@@ -232,20 +235,63 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
   gint v_width, v_height;
   gint line_weight = self->priv->line_weight;
   gint pad_left, pad_top;
-  gint view_count = self->priv->n_elems;
+  gint port_count = self->priv->n_elems;
   gint width_reminder;
+  gint i, mappedCount = 0, curColumn, left, top, src_width, src_height;
+  KmsStyleCompositeMixerData *viewMapping[MAX_VIEW_COUNT] =
+      { NULL, NULL, NULL, NULL };
 
-  if (view_count <= 0) {
+  if (port_count <= 0) {
     return;
   }
   values = g_list_sort (values, compare_port_data);
 
-  counter = 0;
-  n_columns = view_count;
+  // map ports to views.
+  mappedCount = 0;
+  for (l = values; l != NULL; l = l->next) {
+    KmsStyleCompositeMixerData *port_data = l->data;
+
+    // use max-output-bitrate as view id to bind mixer_endpoint to specified user.
+    g_object_get (G_OBJECT (port_data->mixer_end_point), "max-output-bitrate",
+        &port_data->viewId, NULL);
+
+    if (port_data->input == FALSE) {
+      continue;
+    }
+    // find view that match the ID.
+    for (i = 0; i < MAX_VIEW_COUNT; i++) {
+      GST_INFO ("@rentao id=%d, viewId=%d, i=%d", self->priv->views[i].id,
+          port_data->viewId, i);
+      if (self->priv->views[i].id == port_data->viewId) {
+        if (viewMapping[i] == NULL) {
+          viewMapping[i] = port_data;
+          mappedCount++;
+          break;
+        }
+      }
+    }
+    if (i < MAX_VIEW_COUNT)
+      continue;                 // break for find a match view.
+    // find view without ID and available.
+    for (i = 0; i < MAX_VIEW_COUNT; i++) {
+      if (self->priv->views[i].id < 0) {
+        if (viewMapping[i] == NULL) {
+          viewMapping[i] = port_data;
+          mappedCount++;
+          break;
+        }
+      }
+    }
+    if (mappedCount >= MAX_VIEW_COUNT)
+      break;
+  }
+
+  n_columns = mappedCount;
   n_rows = 1;
 
-  GST_DEBUG_OBJECT (self, "@rentao columns=%d rows=%d o_width=%d o_height=%d",
-      n_columns, n_rows, o_width, o_height);
+  GST_DEBUG_OBJECT (self,
+      "@rentao columns=%d rows=%d o_width=%d o_height=%d, mappedCount=%d, port_count=%d",
+      n_columns, n_rows, o_width, o_height, mappedCount, port_count);
 
   //configure the local stream size, left and top according to master output view.
   content_width = o_width - self->priv->pad_x;
@@ -261,27 +307,18 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
   g_snprintf (jsonStyle, 2048,
       "{'width':%d, 'height':%d, 'views':[", o_width, o_height);
 
-  for (l = values; l != NULL; l = l->next) {
-    gint top, left;
-    gint src_width = -1, src_height = -1;
+  // draw the views.
+  curColumn = 0;
+  for (i = 0; i < MAX_VIEW_COUNT; i++) {
+    KmsStyleCompositeMixerData *port_data = viewMapping[i];
 
-    KmsStyleCompositeMixerData *port_data = l->data;
-
-    if (port_data->input == FALSE) {
+    if (port_data == NULL)
       continue;
-    }
-
-    g_object_get (G_OBJECT (port_data->mixer_endpoint), "max-output-bitrate",
-        &bitrate, NULL);
-
-    left = pad_left + b_width * counter;
+    left = pad_left + b_width * curColumn;
     top = pad_top;
-
     // get the source view's resolution.
-    if (counter < MAX_VIEW_COUNT) {
-      src_width = self->priv->views[counter].width;
-      src_height = self->priv->views[counter].height;
-    }
+    src_width = self->priv->views[i].width;
+    src_height = self->priv->views[i].height;
     if (src_width < 0)
       src_width = o_width;
     if (src_height < 0)
@@ -303,20 +340,21 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
     g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top,
         "alpha", 1.0, NULL);
 
-    GST_DEBUG_OBJECT (self, "@rentao counter %d id_port %d bitrate=%d", counter,
-        port_data->id, bitrate);
     GST_DEBUG_OBJECT (self,
         "@rentao top=%d left=%d, pad_left=%d pad_top=%d, src_width=%d src_height=%d, v_width=%d v_height=%d",
         top, left, pad_left, pad_top, src_width, src_height, v_width, v_height);
 
+    // build the view style that will send to the episodeoverlay plugin.
     g_snprintf (jsonView, 512,
         "{'width':%d, 'height':%d, 'x':%d, 'y':%d, 'text':'%s'}%s",
-        v_width, v_height, left, top, self->priv->views[counter].text,
-        (counter >= view_count - 1) ? "" : ",");
+        v_width, v_height, left, top, self->priv->views[i].text,
+        (curColumn >= mappedCount - 1) ? "" : ",");
     g_strlcat (jsonStyle, jsonView, 2048);
-    GST_INFO ("@rentao view json: %s", jsonView);
-    counter++;
+    GST_INFO ("@rentao view json: (%s), i=%d, column=%d", jsonView, i,
+        curColumn);
+    curColumn++;
   }
+  // finishes the view style and set to episodeoverlay plugin.
   g_strlcat (jsonStyle, "]}", 2048);
   GST_INFO ("@rentao style json: %s", jsonStyle);
   g_object_set (G_OBJECT (self->priv->episodeoverlay), "style", jsonStyle,
@@ -556,8 +594,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -881,8 +919,10 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   JsonParser *parser;
   GError *error;
   JsonReader *reader;
-  gint width = 0, height = 0, pad_x = 0, pad_y = 0, line = 0, count, i;
+  gint width = 0, height = 0, pad_x = 0, pad_y = 0, line = 0, count, i, id;
   const gchar *background, *text;
+  gchar **members;
+  gint n_members, mi;
 
   parser = json_parser_new ();
   error = NULL;
@@ -894,6 +934,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
     g_object_unref (parser);
     return FALSE;
   }
+  GST_INFO_OBJECT (json_parser_get_root (parser), "@rentao");
   reader = json_reader_new (json_parser_get_root (parser));
 
   json_reader_read_member (reader, "width");
@@ -920,14 +961,6 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
       create_freezeimage_video (self);
   }
   json_reader_end_member (reader);
-
-//  json_reader_read_member (reader, "text");
-//  text = json_reader_get_string_value (reader);
-//  if (text != NULL && self->priv->textoverlay != NULL) {
-//    g_object_set (G_OBJECT (self->priv->textoverlay), "text", text, NULL);
-//    GST_INFO ("@rentao set text=%s", text);
-//  }
-//  json_reader_end_member (reader);
 
   json_reader_read_member (reader, "pad-x");
   pad_x = json_reader_get_int_value (reader);
@@ -959,46 +992,52 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   for (i = 0; i < count; i++) {
     json_reader_read_element (reader, i);
 
-    if (json_reader_read_member (reader, "text")) {
-      text = json_reader_get_string_value (reader);
-      if (text != NULL) {
-        g_strlcpy (self->priv->views[i].text, text, MAX_TEXT_LENGTH);
-        GST_INFO ("@rentao set view[%d] text=%s", i, self->priv->views[i].text);
+    members = json_reader_list_members (reader);
+    n_members = g_strv_length (members);
+
+    for (mi = 0; mi < n_members; mi++) {
+      if (g_strcmp0 (members[mi], "id") == 0) {
+        json_reader_read_member (reader, "id");
+        id = json_reader_get_int_value (reader);
+        self->priv->views[i].id = id;
+        GST_INFO ("@rentao set view[%d] id=%d", i, self->priv->views[i].id);
+      } else if (g_strcmp0 (members[mi], "text") == 0) {
+        json_reader_read_member (reader, "text");
+        text = json_reader_get_string_value (reader);
+        if (text != NULL) {
+          g_strlcpy (self->priv->views[i].text, text, MAX_TEXT_LENGTH);
+          GST_INFO ("@rentao set view[%d] text=%s", i,
+              self->priv->views[i].text);
+        }
+      } else if (g_strcmp0 (members[mi], "width") == 0) {
+        json_reader_read_member (reader, "width");
+        width = json_reader_get_int_value (reader);
+        if (width > 0) {
+          self->priv->views[i].width = width;
+          GST_INFO ("@rentao set view[%d] width=%d", i,
+              self->priv->views[i].width);
+        }
+      } else if (g_strcmp0 (members[mi], "height") == 0) {
+        json_reader_read_member (reader, "height");
+        height = json_reader_get_int_value (reader);
+        if (height > 0) {
+          self->priv->views[i].height = height;
+          GST_INFO ("@rentao set view[%d] height=%d", i,
+              self->priv->views[i].height);
+        }
       }
       json_reader_end_member (reader);
     }
-
-    if (json_reader_read_member (reader, "width")) {
-      width = json_reader_get_int_value (reader);
-      if (width > 0) {
-        self->priv->views[i].width = width;
-        GST_INFO ("@rentao set view[%d] width=%d", i,
-            self->priv->views[i].width);
-      }
-      json_reader_end_member (reader);
-    }
-
-    if (json_reader_read_member (reader, "height")) {
-      height = json_reader_get_int_value (reader);
-      if (height > 0) {
-        self->priv->views[i].height = height;
-        GST_INFO ("@rentao set view[%d] height=%d", i,
-            self->priv->views[i].height);
-      }
-      json_reader_end_member (reader);
-    }
-
+    g_strfreev (members);
     json_reader_end_element (reader);
   }
+  json_reader_end_member (reader);
+
+  GST_INFO ("@rentao set views' count=%d", count);
   if (count > 0) {
     kms_style_composite_mixer_recalculate_sizes (self);
   }
 
-  GST_INFO ("@rentao set views' count=%d", count);
-  json_reader_end_member (reader);
-
-  GST_INFO ("@rentao parse_style finished width=%d, height=%d, background=%s",
-      width, height, background);
   g_object_unref (reader);
   g_object_unref (parser);
 
@@ -1112,7 +1151,8 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
       self->priv->mixer_video_agnostic, "src_%u", TRUE);
 
   port_data = kms_style_composite_mixer_port_data_create (self, port_id);
-  port_data->mixer_endpoint = mixer_end_point;
+  port_data->mixer_end_point = mixer_end_point;
+
   g_hash_table_insert (self->priv->ports, create_gint (port_id), port_data);
 
   KMS_STYLE_COMPOSITE_MIXER_UNLOCK (self);
@@ -1303,6 +1343,7 @@ kms_style_composite_mixer_init (KmsStyleCompositeMixer * self)
   self->priv->line_weight = 2;
   self->priv->n_elems = 0;
   for (i = 0; i < MAX_VIEW_COUNT; i++) {
+    self->priv->views[i].id = -1;
     self->priv->views[i].width = -1;
     self->priv->views[i].height = -1;
   }
