@@ -605,8 +605,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -1062,6 +1062,7 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
   KmsStyleCompositeMixer *self = KMS_STYLE_COMPOSITE_MIXER (mixer);
   KmsStyleCompositeMixerData *port_data;
   gint port_id;
+  GstElement *filter;
 
   port_id = KMS_BASE_HUB_CLASS (G_OBJECT_CLASS
       (kms_style_composite_mixer_parent_class))->handle_port (mixer,
@@ -1081,12 +1082,19 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
     self->priv->mixer_video_agnostic =
         gst_element_factory_make ("agnosticbin", NULL);
 
-    self->priv->episodeoverlay =
-        gst_element_factory_make ("episodeoverlay", NULL);
-    kms_style_composite_mixer_setup_background_image (self);
+    filter = gst_element_factory_make ("filterelement", NULL);
+    g_object_set (filter, "filter-factory", "episodeoverlay", NULL);
+    g_object_get (G_OBJECT (filter), "filter", &self->priv->episodeoverlay,
+        NULL);
+    gst_object_unref (self->priv->episodeoverlay);
+//    self->priv->episodeoverlay =
+//        gst_element_factory_make ("episodeoverlay", NULL);
+//    kms_style_composite_mixer_setup_background_image (self);
 
+//    gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer,
+//        self->priv->episodeoverlay, self->priv->mixer_video_agnostic, NULL);
     gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer,
-        self->priv->episodeoverlay, self->priv->mixer_video_agnostic, NULL);
+        filter, self->priv->mixer_video_agnostic, NULL);
 
     if (self->priv->videotestsrc == NULL) {
       GstElement *capsfilter;
@@ -1140,11 +1148,14 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
     }
 
     gst_element_sync_state_with_parent (self->priv->videomixer);
-    gst_element_sync_state_with_parent (self->priv->episodeoverlay);
+//    gst_element_sync_state_with_parent (self->priv->episodeoverlay);
+    gst_element_sync_state_with_parent (filter);
     gst_element_sync_state_with_parent (self->priv->mixer_video_agnostic);
 
-    gst_element_link_many (self->priv->videomixer, self->priv->episodeoverlay,
-        self->priv->mixer_video_agnostic, NULL);
+//    gst_element_link_many (self->priv->videomixer,
+//        self->priv->mixer_video_agnostic, self->priv->episodeoverlay, NULL);
+    gst_element_link_many (self->priv->videomixer,
+        self->priv->mixer_video_agnostic, filter, NULL);
   }
 
   if (self->priv->audiomixer == NULL) {

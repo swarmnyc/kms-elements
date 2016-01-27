@@ -436,8 +436,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -620,6 +620,9 @@ pad_removed_cb (GstElement * element, GstPad * pad, gpointer data)
   GST_DEBUG ("Removed pad %" GST_PTR_FORMAT, pad);
 }
 
+#define NEED_FILTER 1
+//#undef NEED_FILTER
+
 static gint
 kms_composite_mixer_handle_port (KmsBaseHub * mixer,
     GstElement * mixer_end_point)
@@ -627,6 +630,14 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
   KmsCompositeMixer *self = KMS_COMPOSITE_MIXER (mixer);
   KmsCompositeMixerData *port_data;
   gint port_id;
+
+#ifdef NEED_FILTER
+  GstElement *filter;
+  GstElement *capsfilter_0;
+  GstCaps *filtercaps_0;
+
+  GST_INFO ("@rentao Using filter.");
+#endif
 
   GST_DEBUG ("handle new port");
   port_id = KMS_BASE_HUB_CLASS (G_OBJECT_CLASS
@@ -645,8 +656,26 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
     self->priv->mixer_video_agnostic =
         gst_element_factory_make ("agnosticbin", NULL);
 
+#ifdef NEED_FILTER
+    filter = gst_element_factory_make ("filterelement", NULL);
+    g_object_set (filter, "filter-factory", "episodeoverlay", NULL);
+    capsfilter_0 = gst_element_factory_make ("capsfilter", NULL);
+    g_object_set (G_OBJECT (capsfilter_0), "caps-change-mode", 1, NULL);
+    filtercaps_0 =
+        gst_caps_new_simple ("video/x-raw",
+        "width", G_TYPE_INT, self->priv->output_width,
+        "height", G_TYPE_INT, self->priv->output_height,
+        "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
+    g_object_set (G_OBJECT (capsfilter_0), "caps", filtercaps_0, NULL);
+    gst_caps_unref (filtercaps_0);
+
+    gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer, filter,
+        capsfilter_0, self->priv->mixer_video_agnostic, NULL);
+#else
+    GST_INFO ("@rentao NOT using fiilter.");
     gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer,
         self->priv->mixer_video_agnostic, NULL);
+#endif
 
     if (self->priv->videotestsrc == NULL) {
       GstElement *capsfilter;
@@ -698,7 +727,14 @@ kms_composite_mixer_handle_port (KmsBaseHub * mixer,
     gst_element_sync_state_with_parent (self->priv->videomixer);
     gst_element_sync_state_with_parent (self->priv->mixer_video_agnostic);
 
+#ifdef NEED_FILTER
+    gst_element_sync_state_with_parent (filter);
+    gst_element_sync_state_with_parent (capsfilter_0);
+    gst_element_link_many (self->priv->videomixer,
+        self->priv->mixer_video_agnostic, filter, NULL);
+#else
     gst_element_link (self->priv->videomixer, self->priv->mixer_video_agnostic);
+#endif
   }
 
   if (self->priv->audiomixer == NULL) {

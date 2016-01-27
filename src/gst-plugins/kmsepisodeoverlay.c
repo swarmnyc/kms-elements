@@ -469,6 +469,7 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   int left, right, top, bottom;
   KmsTextViewPrivate *data;
 
+//  GST_INFO("@rentao transform_frame_ip.");
   // plug-in now is disabled.
   if (self->priv->enable == 0)
     return GST_FLOW_OK;

@@ -71,7 +71,6 @@ kurento_init (GstPlugin * kurento)
     return FALSE;
   }
 
-  GST_ERROR ("@rentao kms_episode_overlay_plugin_init");
   if (!kms_episode_overlay_plugin_init (kurento)) {
     return FALSE;
   }
