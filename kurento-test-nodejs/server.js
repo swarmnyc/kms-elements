@@ -142,9 +142,10 @@ wss.on('connection', function(ws) {
 
 			case 'action1':
 				if (presenter.composite != null) {
-					views_style.views[0].width += 64;
-					views_style.views[0].height += 48;
-					presenter.composite.setStyle(JSON.stringify(views_style));
+					presenter.composite.setStyle("{'background':'http://placeimg.com/640/480/any.jpg'}");
+					//views_style.views[0].width += 64;
+					//views_style.views[0].height += 48;
+					//presenter.composite.setStyle(JSON.stringify(views_style));
 				}
 				ws.send(JSON.stringify({
 					id : 'action1',
@@ -391,7 +392,7 @@ function startViewer(sessionId, ws, sdpOffer, callback) {
 						console.log(_composite)
 //						var style = {width:1280, height:768, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/1280/768/any.jpg"};
 //						var style = {width:800, height:600, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/800/600/any.jpg", views:[{width:400, height:500, text:"123"},{width:400, height:500, text:"1234"},{id:3},{text:"abc"}]};
-						var style = {width:640, height:480, 'pad-x': 40, 'pad-y': 40, background:"http://placeimg.com/640/480/any.jpg", views:[{id:11, width:640, height:480, text:"Host Kurento"},{text:"Guest: Tao"},{id:3, text:"Position3"},{text:"Guest: Alex"}]};
+						var style = {width:640, height:480, 'pad-x': 40, 'pad-y': 40, views:[{id:11, width:640, height:480, text:"Host Kurento"},{text:"Guest: Tao"},{id:3, text:"Position3"},{text:"Guest: Alex"}]};
 						_composite.setStyle(JSON.stringify(style));
 						_composite.getStyle(function(err, ret) {
 							console.log( "getStyle return:" + ret );
@@ -443,6 +444,7 @@ function addViewer(sessionId, ws, sdpOffer, callback) {
             viewers[sessionId].hubPort = _hubPort;
             _hubPort.connect(webRtcEndpoint, function() {
                 console.log("connect to hub port");
+//				presenter.composite.setStyle("{'background':'http://placeimg.com/640/480/any.jpg'}");
             });
         });
 

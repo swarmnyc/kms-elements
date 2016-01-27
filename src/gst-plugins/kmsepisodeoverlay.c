@@ -47,6 +47,12 @@
 GST_DEBUG_CATEGORY_STATIC (kms_episode_overlay_debug_category);
 #define GST_CAT_DEFAULT kms_episode_overlay_debug_category
 
+#define KMS_EPISODE_OVERLAY_LOCK(overlay) \
+  (g_rec_mutex_lock (&( (KmsEpisodeOverlay *) overlay)->priv->mutex))
+
+#define KMS_EPISODE_OVERLAY_UNLOCK(overlay) \
+  (g_rec_mutex_unlock (&( (KmsEpisodeOverlay *) overlay)->priv->mutex))
+
 #define KMS_EPISODE_OVERLAY_GET_PRIVATE(obj) ( \
   G_TYPE_INSTANCE_GET_PRIVATE (              \
     (obj),                                   \
@@ -81,6 +87,7 @@ typedef struct _KmsTextViewPrivate
 
 struct _KmsEpisodeOverlayPrivate
 {
+  GRecMutex mutex;
   IplImage *cvImage, *costume, *background, *background_image;
   GstStructure *image_to_overlay;
 
@@ -259,6 +266,7 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
   }
   json_reader_end_element (reader);
 
+  KMS_EPISODE_OVERLAY_LOCK (self);
   // handle background image.
   if (json_reader_read_member (reader, "background_image")) {
     url = json_reader_get_string_value (reader);
@@ -368,6 +376,7 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
     GST_INFO ("@rentao set views' count=%d", count);
     json_reader_end_member (reader);
   }
+  KMS_EPISODE_OVERLAY_UNLOCK (self);
 
   g_object_unref (reader);
   g_object_unref (parser);
@@ -469,7 +478,6 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   int left, right, top, bottom;
   KmsTextViewPrivate *data;
 
-//  GST_INFO("@rentao transform_frame_ip.");
   // plug-in now is disabled.
   if (self->priv->enable == 0)
     return GST_FLOW_OK;
@@ -482,6 +490,10 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   cvInitFont (&font, CV_FONT_HERSHEY_SIMPLEX, 0.75f, 0.75f, 0, 2, 8);   //rate of width
   curImg = self->priv->cvImage;
 
+  GST_INFO ("@rentao transform_frame_ip. width=%d, height=%d",
+      cvGetSize (curImg).width, cvGetSize (curImg).height);
+
+  KMS_EPISODE_OVERLAY_LOCK (self);
   // try to build the background.
   if (self->priv->background == NULL && self->priv->background_image != NULL) {
     styleZone =
@@ -506,6 +518,7 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     cvAdd (curImg, self->priv->background, curImg, NULL);
 //    GST_INFO("@rentao add background to source frame");
   }
+  KMS_EPISODE_OVERLAY_UNLOCK (self);
 
   for (i = 0; i < MAX_VIEW_COUNT; i++) {
     data = &self->priv->views[i];
@@ -601,6 +614,8 @@ kms_episode_overlay_finalize (GObject * object)
   if (episodeoverlay->priv->style != NULL)
     g_free (episodeoverlay->priv->style);
 
+  g_rec_mutex_clear (&episodeoverlay->priv->mutex);
+
   g_queue_free_full (episodeoverlay->priv->events_queue, dispose_queue_element);
   episodeoverlay->priv->events_queue = NULL;
 
@@ -613,6 +628,7 @@ kms_episode_overlay_init (KmsEpisodeOverlay * self)
   int i;
 
   self->priv = KMS_EPISODE_OVERLAY_GET_PRIVATE (self);
+  g_rec_mutex_init (&self->priv->mutex);
 
   self->priv->show_debug_info = FALSE;
   self->priv->cvImage = NULL;
@@ -621,7 +637,7 @@ kms_episode_overlay_init (KmsEpisodeOverlay * self)
   self->priv->background = NULL;
   self->priv->dir_created = FALSE;
   self->priv->style = NULL;
-  self->priv->enable = 1;
+  self->priv->enable = 0;
 
   self->priv->events_queue = g_queue_new ();
 
