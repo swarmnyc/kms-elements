@@ -219,62 +219,6 @@ get_width_height (GstPad * pad, gint * width, gint * height)
 #endif
 
 static void
-kms_style_composite_mixer_create_videosrc (KmsStyleCompositeMixer * self)
-{
-  GstElement *videotestsrc;
-  GstElement *capsfilter;
-  GstCaps *filtercaps;
-  GstPad *pad;
-  GstPadTemplate *sink_pad_template;
-  GstElement *filter;
-
-  sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS
-      (self->priv->videomixer), "sink_%u");
-
-  if (G_UNLIKELY (sink_pad_template == NULL)) {
-    GST_ERROR_OBJECT (self, "Error taking a new pad from videomixer");
-  }
-
-  videotestsrc = gst_element_factory_make ("videotestsrc", NULL);
-  g_object_set (videotestsrc, "is-live", TRUE, "pattern",
-      /* black */ 3, NULL);
-
-  filter = gst_element_factory_make ("filterelement", NULL);
-  g_object_set (filter, "filter-factory", "episodeoverlay", NULL);
-  g_object_get (G_OBJECT (filter), "filter", &self->priv->episodeoverlay, NULL);
-  gst_object_unref (self->priv->episodeoverlay);
-
-  capsfilter = gst_element_factory_make ("capsfilter", NULL);
-  g_object_set (G_OBJECT (capsfilter), "caps-change-mode", 1, NULL);
-
-  filtercaps =
-      gst_caps_new_simple ("video/x-raw",
-      "width", G_TYPE_INT, self->priv->output_width,
-      "height", G_TYPE_INT, self->priv->output_height,
-      "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
-  g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
-  gst_caps_unref (filtercaps);
-
-  gst_bin_add_many (GST_BIN (self), videotestsrc, filter, capsfilter, NULL);
-  gst_element_link_many (videotestsrc, filter, capsfilter, NULL);
-
-  /*link capsfilter -> videomixer */
-  pad = gst_element_request_pad (self->priv->videomixer, sink_pad_template,
-      NULL, NULL);
-  gst_element_link_pads (capsfilter, NULL,
-      self->priv->videomixer, GST_OBJECT_NAME (pad));
-  g_object_set (pad, "xpos", 20, "ypos", 20, "alpha", 0.5, NULL);
-//      g_object_set (pad, "xpos", pad_x / 2, "ypos", pad_y / 2, "alpha", .6,
-//              NULL);
-  g_object_unref (pad);
-
-  gst_element_sync_state_with_parent (capsfilter);
-  gst_element_sync_state_with_parent (filter);
-  gst_element_sync_state_with_parent (videotestsrc);
-}
-
-static void
 kms_style_composite_mixer_recalculate_sizes (gpointer data)
 {
   KmsStyleCompositeMixer *self = KMS_STYLE_COMPOSITE_MIXER (data);
@@ -970,7 +914,6 @@ kms_style_composite_mixer_setup_background_image (KmsStyleCompositeMixer * self)
   gchar jsonStyle[512];
 
   GST_INFO ("@rentao");
-  kms_style_composite_mixer_create_videosrc (self);
 
   if (self->priv->episodeoverlay == NULL
       || self->priv->background_image == NULL)
@@ -1122,7 +1065,6 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
   KmsStyleCompositeMixer *self = KMS_STYLE_COMPOSITE_MIXER (mixer);
   KmsStyleCompositeMixerData *port_data;
   gint port_id;
-  GstElement *filter;
 
   port_id = KMS_BASE_HUB_CLASS (G_OBJECT_CLASS
       (kms_style_composite_mixer_parent_class))->handle_port (mixer,
@@ -1142,14 +1084,16 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
     self->priv->mixer_video_agnostic =
         gst_element_factory_make ("agnosticbin", NULL);
 
-//    self->priv->episodeoverlay =
-//        gst_element_factory_make ("episodeoverlay", NULL);
-//    kms_style_composite_mixer_setup_background_image (self);
+    self->priv->episodeoverlay =
+        gst_element_factory_make ("episodeoverlay", NULL);
+    kms_style_composite_mixer_setup_background_image (self);
 
-//    gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer,
-//        self->priv->episodeoverlay, self->priv->mixer_video_agnostic, NULL);
     gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer,
-        self->priv->mixer_video_agnostic, NULL);
+        self->priv->episodeoverlay, self->priv->mixer_video_agnostic, NULL);
+
+    gst_element_sync_state_with_parent (self->priv->videomixer);
+    gst_element_sync_state_with_parent (self->priv->episodeoverlay);
+    gst_element_sync_state_with_parent (self->priv->mixer_video_agnostic);
 
     if (self->priv->videotestsrc == NULL) {
       GstElement *capsfilter;
@@ -1171,12 +1115,6 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
       g_object_set (self->priv->videotestsrc, "is-live", TRUE, "pattern",
           /* black */ 2, NULL);
 
-      filter = gst_element_factory_make ("filterelement", NULL);
-      g_object_set (filter, "filter-factory", "episodeoverlay", NULL);
-      g_object_get (G_OBJECT (filter), "filter", &self->priv->episodeoverlay,
-          NULL);
-      gst_object_unref (self->priv->episodeoverlay);
-
       capsfilter = gst_element_factory_make ("capsfilter", NULL);
       g_object_set (G_OBJECT (capsfilter), "caps-change-mode", 1, NULL);
 
@@ -1188,7 +1126,7 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
       g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
 
-      gst_bin_add_many (GST_BIN (self), self->priv->videotestsrc, filter,
+      gst_bin_add_many (GST_BIN (self), self->priv->videotestsrc,
           capsfilter, NULL);
       gst_element_link_many (self->priv->videotestsrc, capsfilter, NULL);
 
@@ -1205,17 +1143,10 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
           self->priv->output_width, self->priv->output_height, pad_x, pad_y);
 
       gst_element_sync_state_with_parent (capsfilter);
-      gst_element_sync_state_with_parent (filter);
       gst_element_sync_state_with_parent (self->priv->videotestsrc);
     }
 
-    gst_element_sync_state_with_parent (self->priv->videomixer);
-//    gst_element_sync_state_with_parent (self->priv->episodeoverlay);
-    gst_element_sync_state_with_parent (self->priv->mixer_video_agnostic);
-
-//    gst_element_link_many (self->priv->videomixer,
-//        self->priv->mixer_video_agnostic, self->priv->episodeoverlay, NULL);
-    gst_element_link_many (self->priv->videomixer,
+    gst_element_link_many (self->priv->videomixer, self->priv->episodeoverlay,
         self->priv->mixer_video_agnostic, NULL);
   }
 
