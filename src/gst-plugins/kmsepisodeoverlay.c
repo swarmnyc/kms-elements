@@ -156,85 +156,6 @@ end:
   g_object_unref (session);
 }
 
-static void
-kms_episode_overlay_load_image_to_overlay (KmsEpisodeOverlay * episodeoverlay)
-{
-  gchar *url = NULL;
-  IplImage *costumeAux = NULL;
-  gboolean fields_ok = TRUE;
-
-  fields_ok = fields_ok
-      && gst_structure_get (episodeoverlay->priv->image_to_overlay,
-      "offsetXPercent", G_TYPE_DOUBLE, &episodeoverlay->priv->offsetXPercent,
-      NULL);
-  fields_ok = fields_ok
-      && gst_structure_get (episodeoverlay->priv->image_to_overlay,
-      "offsetYPercent", G_TYPE_DOUBLE, &episodeoverlay->priv->offsetYPercent,
-      NULL);
-  fields_ok = fields_ok
-      && gst_structure_get (episodeoverlay->priv->image_to_overlay,
-      "widthPercent", G_TYPE_DOUBLE, &episodeoverlay->priv->widthPercent, NULL);
-  fields_ok = fields_ok
-      && gst_structure_get (episodeoverlay->priv->image_to_overlay,
-      "heightPercent", G_TYPE_DOUBLE, &episodeoverlay->priv->heightPercent,
-      NULL);
-  fields_ok = fields_ok
-      && gst_structure_get (episodeoverlay->priv->image_to_overlay, "url",
-      G_TYPE_STRING, &url, NULL);
-
-  if (!fields_ok) {
-    GST_WARNING_OBJECT (episodeoverlay, "Invalid image structure received");
-    goto end;
-  }
-
-  if (url == NULL) {
-    GST_DEBUG ("Unset the image overlay");
-    goto end;
-  }
-
-  if (!episodeoverlay->priv->dir_created) {
-    gchar *d = g_strdup (TEMP_PATH);
-
-    episodeoverlay->priv->dir = g_mkdtemp (d);
-    episodeoverlay->priv->dir_created = TRUE;
-  }
-
-  costumeAux = cvLoadImage (url, CV_LOAD_IMAGE_UNCHANGED);
-
-  if (costumeAux != NULL) {
-    GST_DEBUG ("Image loaded from file");
-    goto end;
-  }
-
-  if (kms_episode_overlay_is_valid_uri (url)) {
-    gchar *file_name =
-        g_strconcat (episodeoverlay->priv->dir, "/image.png", NULL);
-    load_from_url (file_name, url);
-    costumeAux = cvLoadImage (file_name, CV_LOAD_IMAGE_UNCHANGED);
-    g_remove (file_name);
-    g_free (file_name);
-  }
-
-  if (costumeAux == NULL) {
-    GST_DEBUG ("Image not loaded");
-  } else {
-    GST_DEBUG ("Image loaded from URL");
-  }
-
-end:
-
-  if (episodeoverlay->priv->costume != NULL) {
-    cvReleaseImage (&episodeoverlay->priv->costume);
-    episodeoverlay->priv->costume = NULL;
-  }
-
-  if (costumeAux != NULL) {
-    episodeoverlay->priv->costume = costumeAux;
-  }
-
-  g_free (url);
-}
-
 static gboolean
 kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
 {
@@ -242,7 +163,7 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
   JsonParser *parser;
   GError *error;
   JsonReader *reader;
-  gint width = 0, height = 0, x, y, count, i;
+  gint width = 0, height = 0, x, y, count, i, disable;
   const gchar *text, *url;
 
   parser = json_parser_new ();
@@ -267,6 +188,9 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
   json_reader_end_element (reader);
 
   KMS_EPISODE_OVERLAY_LOCK (self);
+  disable = self->priv->enable;
+  self->priv->enable = 0;
+
   // handle background image.
   if (json_reader_read_member (reader, "background_image")) {
     url = json_reader_get_string_value (reader);
@@ -376,6 +300,8 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
     GST_INFO ("@rentao set views' count=%d", count);
     json_reader_end_member (reader);
   }
+
+  self->priv->enable = disable;
   KMS_EPISODE_OVERLAY_UNLOCK (self);
 
   g_object_unref (reader);
@@ -397,8 +323,6 @@ kms_episode_overlay_set_property (GObject * object, guint property_id,
       g_free (self->priv->style);
       self->priv->style = g_value_dup_string (value);
       kms_episode_overlay_parse_style (self);
-      if (0)
-        kms_episode_overlay_load_image_to_overlay (self);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -482,6 +406,8 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   if (self->priv->enable == 0)
     return GST_FLOW_OK;
 
+  KMS_EPISODE_OVERLAY_LOCK (self);
+
   gst_buffer_map (frame->buffer, &info, GST_MAP_READ);
 
   kms_episode_overlay_initialize_images (self, frame);
@@ -490,16 +416,15 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   cvInitFont (&font, CV_FONT_HERSHEY_SIMPLEX, 0.75f, 0.75f, 0, 2, 8);   //rate of width
   curImg = self->priv->cvImage;
 
-  GST_INFO ("@rentao transform_frame_ip. width=%d, height=%d",
+  GST_TRACE ("@rentao transform_frame_ip. width=%d, height=%d",
       cvGetSize (curImg).width, cvGetSize (curImg).height);
 
-  KMS_EPISODE_OVERLAY_LOCK (self);
   // try to build the background.
   if (self->priv->background == NULL && self->priv->background_image != NULL) {
     styleZone =
-        cvCreateImage (cvGetSize (self->priv->background_image), curImg->depth,
-        curImg->nChannels);
-    cvCopy (self->priv->background_image, styleZone, NULL);
+        cvCreateImage (cvGetSize (curImg), curImg->depth, curImg->nChannels);
+    cvResize (self->priv->background_image, styleZone, CV_INTER_LINEAR);
+//    cvCopy (self->priv->background_image, styleZone, NULL);
     for (i = 0; i < MAX_VIEW_COUNT; i++) {
       data = &self->priv->views[i];
       if (data->width > 0) {
@@ -518,7 +443,6 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     cvAdd (curImg, self->priv->background, curImg, NULL);
 //    GST_INFO("@rentao add background to source frame");
   }
-  KMS_EPISODE_OVERLAY_UNLOCK (self);
 
   for (i = 0; i < MAX_VIEW_COUNT; i++) {
     data = &self->priv->views[i];
@@ -568,6 +492,7 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   }
 
   gst_buffer_unmap (frame->buffer, &info);
+  KMS_EPISODE_OVERLAY_UNLOCK (self);
 
   return GST_FLOW_OK;
 }

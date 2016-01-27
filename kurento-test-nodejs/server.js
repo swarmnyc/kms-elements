@@ -392,7 +392,7 @@ function startViewer(sessionId, ws, sdpOffer, callback) {
 						console.log(_composite)
 //						var style = {width:1280, height:768, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/1280/768/any.jpg"};
 //						var style = {width:800, height:600, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/800/600/any.jpg", views:[{width:400, height:500, text:"123"},{width:400, height:500, text:"1234"},{id:3},{text:"abc"}]};
-						var style = {width:640, height:480, 'pad-x': 120, 'pad-y': 120, views:[{id:1234, width:640, height:480, text:"Host Kurento"},{text:"Guest: Tao"},{text:"Position3"},{text:"Guest: Alex"}]};
+						var style = {width:640, height:480, 'pad-x': 120, 'pad-y': 120, views:[{width:640, height:480, text:"Host Kurento"},{text:"Guest: Tao"},{text:"Position3"},{text:"Guest: Alex"}]};
 						_composite.setStyle(JSON.stringify(style));
 						_composite.getStyle(function(err, ret) {
 							console.log( "getStyle return:" + ret );
