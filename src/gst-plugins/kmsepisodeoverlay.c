@@ -406,9 +406,9 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   if (self->priv->enable == 0)
     return GST_FLOW_OK;
 
-  KMS_EPISODE_OVERLAY_LOCK (self);
-
   gst_buffer_map (frame->buffer, &info, GST_MAP_READ);
+
+  KMS_EPISODE_OVERLAY_LOCK (self);
 
   kms_episode_overlay_initialize_images (self, frame);
   self->priv->cvImage->imageData = (char *) info.data;
@@ -491,8 +491,9 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     }
   }
 
-  gst_buffer_unmap (frame->buffer, &info);
   KMS_EPISODE_OVERLAY_UNLOCK (self);
+
+  gst_buffer_unmap (frame->buffer, &info);
 
   return GST_FLOW_OK;
 }

@@ -142,7 +142,60 @@ wss.on('connection', function(ws) {
 
 			case 'action1':
 				if (presenter.composite != null) {
-					presenter.composite.setStyle("{'background':'http://placeimg.com/640/480/any.jpg'}");
+					console.log("getGStreamerDot");
+					presenter.pipeline.getGstreamerDot(function(err, ret){
+						if(err) {
+							return console.log(err);
+						}
+						var fs = require('fs');
+						fs.writeFile("pipeline.dot", ret, function(err) {
+							if(err) {
+								return console.log(err);
+							}
+							console.log("The file pipeline.dot was saved!");
+						});
+					});
+					presenter.composite.getGstreamerDot(function(err, ret){
+						if(err) {
+							return console.log(err);
+						}
+						var fs = require('fs');
+						fs.writeFile("composite.dot", ret, function(err) {
+							if(err) {
+								return console.log(err);
+							}
+							console.log("The file composite.dot was saved!");
+						});
+					});
+					if (presenter.webRtcEndpoint[sessionId]) {
+						presenter.webRtcEndpoint[sessionId].getGstreamerDot(function (err, ret) {
+							if (err) {
+								return console.log(err);
+							}
+							var fs = require('fs');
+							fs.writeFile("webrtcEndpointPresenter.dot", ret, function (err) {
+								if (err) {
+									return console.log(err);
+								}
+								console.log("The file webrtcEndpointPresenter.dot was saved!");
+							});
+						});
+					}
+					if (viewers[sessionId] && viewers[sessionId].webRtcEndpoint) {
+						viewers[sessionId].webRtcEndpoint.getGstreamerDot(function (err, ret) {
+							if (err) {
+								return console.log(err);
+							}
+							var fs = require('fs');
+							fs.writeFile("webrtcEndpointViewer.dot", ret, function (err) {
+								if (err) {
+									return console.log(err);
+								}
+								console.log("The file webrtcEndpointViewer.dot was saved!");
+							});
+						});
+					}
+					//presenter.composite.setStyle("{'background':'http://placeimg.com/640/480/any.jpg'}");
 					//views_style.views[0].width += 64;
 					//views_style.views[0].height += 48;
 					//presenter.composite.setStyle(JSON.stringify(views_style));
