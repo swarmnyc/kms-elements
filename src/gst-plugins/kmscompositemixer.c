@@ -621,7 +621,7 @@ pad_removed_cb (GstElement * element, GstPad * pad, gpointer data)
 }
 
 #define NEED_FILTER 1
-//#undef NEED_FILTER
+#undef NEED_FILTER
 
 static gint
 kms_composite_mixer_handle_port (KmsBaseHub * mixer,
