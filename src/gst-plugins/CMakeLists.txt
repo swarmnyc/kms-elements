@@ -65,6 +65,8 @@ include_directories(
   ${libsoup-2.4_INCLUDE_DIRS}
   ${json-glib-1.0_INCLUDE_DIRS}
   ${opencv_INCLUDE_DIRS}
+  ${pango_INCLUDE_DIRS}
+  ${cairo_INCLUDE_DIRS}
 )
 
 target_link_libraries(${LIBRARY_NAME}plugins
@@ -76,6 +78,8 @@ target_link_libraries(${LIBRARY_NAME}plugins
   ${libsoup-2.4_LIBRARIES}
   ${json-glib-1.0_LIBRARIES}
   ${opencv_LIBRARIES}
+  ${pango_LIBRARIES}
+  ${cairo_LIBRARIES}
 )
 
 install(

@@ -37,10 +37,12 @@
 #include <stdlib.h>
 #include <glib-object.h>
 #include <json-glib/json-glib.h>
+#include <pango/pangocairo.h>
 
 #define TEMP_PATH "/tmp/XXXXXX"
 #define BLUE_COLOR (cvScalar (255, 0, 0, 0))
 #define SRC_OVERLAY ((double)1)
+#define MINIMUM_OUTLINE_OFFSET 1.0
 
 #define PLUGIN_NAME "episodeoverlay"
 
@@ -62,6 +64,24 @@ GST_DEBUG_CATEGORY_STATIC (kms_episode_overlay_debug_category);
 )
 
 #define DEFAULT_STYLE NULL
+
+#if G_BYTE_ORDER == G_LITTLE_ENDIAN
+# define CAIRO_ARGB_A 3
+# define CAIRO_ARGB_R 2
+# define CAIRO_ARGB_G 1
+# define CAIRO_ARGB_B 0
+#else
+# define CAIRO_ARGB_A 0
+# define CAIRO_ARGB_R 1
+# define CAIRO_ARGB_G 2
+# define CAIRO_ARGB_B 3
+#endif
+
+#define CAIRO_UNPREMULTIPLY(a,r,g,b) G_STMT_START { \
+  b = (a > 0) ? MIN ((b * 255 + a / 2) / a, 255) : 0; \
+  g = (a > 0) ? MIN ((g * 255 + a / 2) / a, 255) : 0; \
+  r = (a > 0) ? MIN ((r * 255 + a / 2) / a, 255) : 0; \
+} G_STMT_END
 
 enum
 {
@@ -101,6 +121,12 @@ struct _KmsEpisodeOverlayPrivate
   gchar *style;
   KmsTextViewPrivate views[MAX_VIEW_COUNT];
   gint enable;
+
+  // for text font.
+  PangoContext *pango_context;
+  PangoLayout *layout;
+  gdouble shadow_offset;
+  gdouble outline_offset;
 };
 
 /* pad templates */
@@ -157,6 +183,18 @@ end:
   g_object_unref (session);
 }
 
+static void
+kms_episode_overlay_adjust_values_with_fontdesc (KmsEpisodeOverlay * self,
+    PangoFontDescription * desc)
+{
+  gint font_size = pango_font_description_get_size (desc) / PANGO_SCALE;
+
+  self->priv->shadow_offset = (double) (font_size) / 13.0;
+  self->priv->outline_offset = (double) (font_size) / 15.0;
+  if (self->priv->outline_offset < MINIMUM_OUTLINE_OFFSET)
+    self->priv->outline_offset = MINIMUM_OUTLINE_OFFSET;
+}
+
 static gboolean
 kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
 {
@@ -166,6 +204,7 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
   JsonReader *reader;
   gint width = 0, height = 0, x, y, count, i, disable;
   const gchar *text, *url;
+  const gchar *fontdesc_str;
 
   parser = json_parser_new ();
   error = NULL;
@@ -252,6 +291,24 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
         self->priv->background = NULL;
         GST_INFO ("@rentao reset background");
       }
+    }
+  }
+  json_reader_end_element (reader);
+
+  // handle font description
+  if (json_reader_read_member (reader, "font-desc")) {
+    PangoFontDescription *desc;
+
+    fontdesc_str = json_reader_get_string_value (reader);
+    desc = pango_font_description_from_string (fontdesc_str);
+    if (desc) {
+      GST_LOG_OBJECT (self, "font description set: %s", fontdesc_str);
+      pango_layout_set_font_description (self->priv->layout, desc);
+      kms_episode_overlay_adjust_values_with_fontdesc (self, desc);
+      pango_font_description_free (desc);
+    } else {
+      GST_WARNING_OBJECT (self, "font description parse failed: %s",
+          fontdesc_str);
     }
   }
   json_reader_end_element (reader);
@@ -409,6 +466,34 @@ remove_recursive (const gchar * path)
   nftw (path, delete_file, 64, FTW_DEPTH | FTW_PHYS);
 }
 
+static void
+kms_episode_overlay_renderer_image_to_cvimage (cairo_surface_t * text_surface,
+    IplImage * curFrameImage, int xpos, int ypos)
+{
+  int i, j, width, height;
+  CvSize frameSize;
+  guchar *p, *bitp, *text_image, *pixbuf;
+
+  text_image = cairo_image_surface_get_data (text_surface);
+  width = cairo_image_surface_get_width (text_surface);
+  height = cairo_image_surface_get_height (text_surface);
+  frameSize = cvGetSize (curFrameImage);
+  pixbuf = (guchar *) curFrameImage->imageData;
+
+  for (i = 0; i < height && ypos + i < frameSize.height; i++) {
+    p = pixbuf + (ypos + i) * frameSize.width * 3 + xpos * 3;
+    bitp = text_image + i * width * 4;
+    for (j = 0; j < width && j < frameSize.width; j++) {
+      p[0] |= bitp[CAIRO_ARGB_B];
+      p[1] |= bitp[CAIRO_ARGB_G];
+      p[2] |= bitp[CAIRO_ARGB_R];
+
+      bitp += 4;
+      p += 3;
+    }
+  }
+}
+
 static GstFlowReturn
 kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     GstVideoFrame * frame)
@@ -425,7 +510,28 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   if (self->priv->enable == 0)
     return GST_FLOW_OK;
 
+//  gst_buffer_map (inbuf, &map, GST_MAP_READ);
+//  data = map.data;
+//  size = map.size;
+//
+//  /* somehow pango barfs over "\0" buffers... */
+//  while (size > 0 &&
+//      (data[size - 1] == '\r' ||
+//          data[size - 1] == '\n' || data[size - 1] == '\0')) {
+//    size--;
+//  }
+//
+//  /* render text */
+//  GST_DEBUG ("rendering '%*s'", (gint) size, data);
+//  pango_layout_set_markup (render->layout, (gchar *) data, size);
+//  gst_text_render_render_pangocairo (render);
+//  gst_buffer_unmap (inbuf, &map);
+//
+//  gst_text_render_check_argb (render);
+
   gst_buffer_map (frame->buffer, &info, GST_MAP_READ);
+
+  // Check the current frame's resolution just in case.
   if (frame->info.width != self->priv->output_width
       || frame->info.height != self->priv->output_height) {
     static int id = 0;
@@ -529,6 +635,52 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     }
   }
 
+  // draw text using pango
+  pango_layout_set_markup (self->priv->layout,
+      "Hello!@#World 123aslkdjf;lnxz,.v", 40);
+  if (1) {
+    PangoRectangle ink_rect, logical_rect;
+    gint width, height;
+    cairo_surface_t *surface;
+    cairo_t *cr;
+
+    pango_layout_get_pixel_extents (self->priv->layout, &ink_rect,
+        &logical_rect);
+
+    width = logical_rect.width + self->priv->shadow_offset;
+    height = logical_rect.height + logical_rect.y + self->priv->shadow_offset;
+    GST_INFO ("@rentao width=%d height=%d", width, height);
+//    width = 240;
+//    height = 80;
+    surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, width, height);
+//    text_image = g_realloc (text_image, 4 * width * height);
+//    surface = cairo_image_surface_create_for_data (text_image,
+//            CAIRO_FORMAT_ARGB32, width, height, width * 4);
+
+    cr = cairo_create (surface);
+
+//    cairo_select_font_face (cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+//    cairo_set_font_size (cr, 12.0);
+    cairo_set_source_rgb (cr, 1.0, 1.0, 1.0);
+    cairo_move_to (cr, 0.0, 0.0);
+//    cairo_show_text (cr, "?");
+
+    pango_cairo_show_layout (cr, self->priv->layout);
+    cairo_destroy (cr);
+
+//    styleZone = cvCreateImage ( cvSize(width, height), 8, 4);
+//    styleZone->imageData = (char *)cairo_image_surface_get_data(surface);
+//    cvAdd (curImg, styleZone, curImg, NULL);
+
+//    cairo_surface_write_to_png (surface,
+//        "/var/log/kurento-media-server/hello.png");
+//    text_image = cairo_image_surface_get_data (surface);
+    kms_episode_overlay_renderer_image_to_cvimage (surface, curImg, 10, 20);
+    cairo_surface_destroy (surface);
+
+//    g_free(text_image);
+  }
+
   KMS_EPISODE_OVERLAY_UNLOCK (self);
 
   gst_buffer_unmap (frame->buffer, &info);
@@ -590,6 +742,8 @@ static void
 kms_episode_overlay_init (KmsEpisodeOverlay * self)
 {
   int i;
+  PangoFontMap *fontmap;
+  PangoFontDescription *desc;
 
   self->priv = KMS_EPISODE_OVERLAY_GET_PRIVATE (self);
   g_rec_mutex_init (&self->priv->mutex);
@@ -609,11 +763,26 @@ kms_episode_overlay_init (KmsEpisodeOverlay * self)
     self->priv->views[i].width = -1;
     self->priv->views[i].height = -1;
   }
-//  self->priv->views[0].width = 200;
-//  self->priv->views[0].height = 30;
-//  self->priv->views[0].x = 30;
-//  self->priv->views[0].y = 300;
-//  g_strlcpy (self->priv->views[0].text, "View1-Tao", MAX_TEXT_LENGTH);
+
+  // init pango context
+  self->priv->shadow_offset = 0;
+  self->priv->outline_offset = 0;
+  fontmap = pango_cairo_font_map_get_default ();
+  self->priv->pango_context =
+      pango_font_map_create_context (PANGO_FONT_MAP (fontmap));
+  pango_context_set_base_gravity (self->priv->pango_context,
+      PANGO_GRAVITY_SOUTH);
+  // init pango layout
+  self->priv->layout = pango_layout_new (self->priv->pango_context);
+//  desc = pango_context_get_font_description (self->priv->pango_context);
+  desc = pango_font_description_from_string ("sans bold 16");
+  if (desc != NULL) {
+    GST_INFO ("@rentao pango_font_description_from_string");
+  }
+  pango_layout_set_font_description (self->priv->layout, desc);
+//  GST_INFO ("@rentao font description sans bold 64. %" GST_PTR_FORMAT, desc);
+  kms_episode_overlay_adjust_values_with_fontdesc (self, desc);
+
 }
 
 static void
