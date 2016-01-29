@@ -91,6 +91,7 @@ struct _KmsEpisodeOverlayPrivate
   IplImage *cvImage, *costume, *background, *background_image;
   GstStructure *image_to_overlay;
 
+  gint output_width, output_height;
   gdouble offsetXPercent, offsetYPercent, widthPercent, heightPercent;
   gboolean show_debug_info, dir_created;
   gchar *dir;
@@ -190,6 +191,24 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
   KMS_EPISODE_OVERLAY_LOCK (self);
   disable = self->priv->enable;
   self->priv->enable = 0;
+
+  if (json_reader_read_member (reader, "width")) {
+    width = json_reader_get_int_value (reader);
+    if (width > 0) {
+      self->priv->output_width = width;
+      GST_INFO ("@rentao set output width to %d", width);
+    }
+  }
+  json_reader_end_member (reader);
+
+  if (json_reader_read_member (reader, "height")) {
+    height = json_reader_get_int_value (reader);
+    if (height > 0) {
+      self->priv->output_height = height;
+      GST_INFO ("@rentao set output height to %d", height);
+    }
+  }
+  json_reader_end_member (reader);
 
   // handle background image.
   if (json_reader_read_member (reader, "background_image")) {
@@ -407,17 +426,36 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     return GST_FLOW_OK;
 
   gst_buffer_map (frame->buffer, &info, GST_MAP_READ);
+  if (frame->info.width != self->priv->output_width
+      || frame->info.height != self->priv->output_height) {
+    static int id = 0;
+    char filename[256];
+
+    // save the frame to file for further checking.
+    g_snprintf (filename, 256, "/var/log/kurento-media-server/snapshot%04d.jpg",
+        id++);
+    GST_ERROR
+        ("@rentao wront resolution, output=(%d,%d), current frame=(%d,%d), save this frame to %s.",
+        frame->info.width, frame->info.height, self->priv->output_width,
+        self->priv->output_height, filename);
+
+    kms_episode_overlay_initialize_images (self, frame);
+    self->priv->cvImage->imageData = (char *) info.data;
+    curImg = self->priv->cvImage;
+    cvSaveImage (filename, curImg, 0);
+    gst_buffer_unmap (frame->buffer, &info);
+    return GST_FLOW_OK;
+  }
 
   KMS_EPISODE_OVERLAY_LOCK (self);
 
   kms_episode_overlay_initialize_images (self, frame);
   self->priv->cvImage->imageData = (char *) info.data;
-
-  cvInitFont (&font, CV_FONT_HERSHEY_SIMPLEX, 0.75f, 0.75f, 0, 2, 8);   //rate of width
   curImg = self->priv->cvImage;
-
   GST_TRACE ("@rentao transform_frame_ip. width=%d, height=%d",
       cvGetSize (curImg).width, cvGetSize (curImg).height);
+
+  cvInitFont (&font, CV_FONT_HERSHEY_SIMPLEX, 0.75f, 0.75f, 0, 2, 8);   //rate of width
 
   // try to build the background.
   if (self->priv->background == NULL && self->priv->background_image != NULL) {

@@ -47,6 +47,7 @@ generic_find (LIBNAME gio-2.0 VERSION ${GLIB_REQUIRED} REQUIRED)
 generic_find (LIBNAME uuid REQUIRED)
 generic_find (LIBNAME json-glib-1.0 REQUIRED)
 generic_find (LIBNAME opencv VERSION ${OPENCV_REQUIRED} REQUIRED)
+generic_find (LIBNAME pango REQUIRED)
 
 set (VERSION ${PROJECT_VERSION})
 set (PACKAGE ${PROJECT_NAME})
