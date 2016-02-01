@@ -91,7 +91,7 @@ enum
 
 #define MAX_VIEW_COUNT 4
 #define MAX_TEXT_LENGTH 128
-#define MSG_BAR_HEIGHt 30
+#define MSG_BAR_HEIGHT 30
 #define MSG_BAR_BGCOLOR CV_RGB (73, 73, 73)
 #define HOST_BAR_COLOR CV_RGB (255, 91, 0)
 #define GUEST_BAR_COLOR CV_RGB (0, 103, 157)
@@ -103,6 +103,7 @@ typedef struct _KmsTextViewPrivate
   int width;
   int height;
   gchar text[MAX_TEXT_LENGTH];
+  cairo_surface_t *textImage;
 } KmsTextViewPrivate;
 
 struct _KmsEpisodeOverlayPrivate
@@ -193,6 +194,45 @@ kms_episode_overlay_adjust_values_with_fontdesc (KmsEpisodeOverlay * self,
   self->priv->outline_offset = (double) (font_size) / 15.0;
   if (self->priv->outline_offset < MINIMUM_OUTLINE_OFFSET)
     self->priv->outline_offset = MINIMUM_OUTLINE_OFFSET;
+}
+
+static void
+kms_episode_overlay_rebuild_text_images (KmsEpisodeOverlay * self)
+{
+  int i;
+  KmsTextViewPrivate *data;
+
+  for (i = 0; i < MAX_VIEW_COUNT; i++) {
+    data = &self->priv->views[i];
+    if (data->width > 0) {
+      PangoRectangle ink_rect, logical_rect;
+      gint width, height;
+      cairo_t *cr;
+
+      if (data->textImage != NULL)
+        cairo_surface_destroy (data->textImage);
+      if (strlen (data->text) == 0)
+        continue;
+      // draw text on pango layout.
+      pango_layout_set_markup (self->priv->layout, data->text, -1);
+      // calculate the size of text.
+      pango_layout_get_pixel_extents (self->priv->layout, &ink_rect,
+          &logical_rect);
+      width = logical_rect.width + self->priv->shadow_offset;
+      height = logical_rect.height + logical_rect.y + self->priv->shadow_offset;
+      GST_INFO ("@rentao i=%d, text=%s width=%d height=%d", i, data->text,
+          width, height);
+
+      // draw on the cairo surface.
+      data->textImage =
+          cairo_image_surface_create (CAIRO_FORMAT_ARGB32, width, height);
+      cr = cairo_create (data->textImage);
+      cairo_set_source_rgb (cr, 1.0, 1.0, 1.0); // white color to draw text.
+      cairo_move_to (cr, 0.0, 0.0);
+      pango_cairo_show_layout (cr, self->priv->layout);
+      cairo_destroy (cr);
+    }
+  }
 }
 
 static gboolean
@@ -372,6 +412,7 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
       }
 
       json_reader_end_element (reader);
+      kms_episode_overlay_rebuild_text_images (self);
     }
     GST_INFO ("@rentao set views' count=%d", count);
     json_reader_end_member (reader);
@@ -592,24 +633,24 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     data = &self->priv->views[i];
     if (data->width > 0) {
       styleZone =
-          cvCreateImage (cvSize (data->width, MSG_BAR_HEIGHt), curImg->depth,
+          cvCreateImage (cvSize (data->width, MSG_BAR_HEIGHT), curImg->depth,
           curImg->nChannels);
       // draw background block.
       cvRectangle (styleZone, cvPoint (0, 0), cvPoint (data->width,
-              MSG_BAR_HEIGHt), MSG_BAR_BGCOLOR, CV_FILLED, 8, 0);
+              MSG_BAR_HEIGHT), MSG_BAR_BGCOLOR, CV_FILLED, 8, 0);
       // draw leading small color block.
       if (i == 0)
-        cvRectangle (styleZone, cvPoint (0, 0), cvPoint (3, MSG_BAR_HEIGHt),
+        cvRectangle (styleZone, cvPoint (0, 0), cvPoint (3, MSG_BAR_HEIGHT),
             HOST_BAR_COLOR, CV_FILLED, 8, 0);
       else
-        cvRectangle (styleZone, cvPoint (0, 0), cvPoint (3, MSG_BAR_HEIGHt),
+        cvRectangle (styleZone, cvPoint (0, 0), cvPoint (3, MSG_BAR_HEIGHT),
             GUEST_BAR_COLOR, CV_FILLED, 8, 0);
 
       // set ROI
       left = data->x;           // left
       bottom = data->y + data->height;  // bottom
       right = left + data->width;       // right
-      top = bottom - MSG_BAR_HEIGHt;    //top
+      top = bottom - MSG_BAR_HEIGHT;    //top
       cvSetImageROI (curImg, cvRect (left, top, right - left, bottom - top));
 
       // draw style bar alpha transparency to source frame.
@@ -617,12 +658,19 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
           curImg);
 
       // draw msg text.
-      cvPutText (curImg, data->text, cvPoint (10, 20), &font, CV_RGB (255, 255,
-              255));
-
+//      cvPutText (curImg, data->text, cvPoint (10, 20), &font, CV_RGB (255, 255,
+//              255));
       // release ROI
       cvResetImageROI (curImg);
 
+      // draw msg text.
+      if (data->textImage != NULL) {
+        int offsetX = 10;       // left-most align.
+        int offsetY = (MSG_BAR_HEIGHT - cairo_image_surface_get_height (data->textImage) + 1) / 2;      // center align.
+
+        kms_episode_overlay_renderer_image_to_cvimage (data->textImage, curImg,
+            left + offsetX, top + offsetY);
+      }
       // draw boundary
       cvRectangle (curImg, cvPoint (data->x, data->y),
           cvPoint (data->x + data->width, data->y + data->height), CV_RGB (255,
@@ -634,52 +682,52 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
       cvReleaseImage (&styleZone);
     }
   }
-
-  // draw text using pango
-  pango_layout_set_markup (self->priv->layout,
-      "Hello!@#World 123aslkdjf;lnxz,.v", 40);
-  if (1) {
-    PangoRectangle ink_rect, logical_rect;
-    gint width, height;
-    cairo_surface_t *surface;
-    cairo_t *cr;
-
-    pango_layout_get_pixel_extents (self->priv->layout, &ink_rect,
-        &logical_rect);
-
-    width = logical_rect.width + self->priv->shadow_offset;
-    height = logical_rect.height + logical_rect.y + self->priv->shadow_offset;
-    GST_INFO ("@rentao width=%d height=%d", width, height);
-//    width = 240;
-//    height = 80;
-    surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, width, height);
-//    text_image = g_realloc (text_image, 4 * width * height);
-//    surface = cairo_image_surface_create_for_data (text_image,
-//            CAIRO_FORMAT_ARGB32, width, height, width * 4);
-
-    cr = cairo_create (surface);
-
-//    cairo_select_font_face (cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-//    cairo_set_font_size (cr, 12.0);
-    cairo_set_source_rgb (cr, 1.0, 1.0, 1.0);
-    cairo_move_to (cr, 0.0, 0.0);
-//    cairo_show_text (cr, "?");
-
-    pango_cairo_show_layout (cr, self->priv->layout);
-    cairo_destroy (cr);
-
-//    styleZone = cvCreateImage ( cvSize(width, height), 8, 4);
-//    styleZone->imageData = (char *)cairo_image_surface_get_data(surface);
-//    cvAdd (curImg, styleZone, curImg, NULL);
-
-//    cairo_surface_write_to_png (surface,
-//        "/var/log/kurento-media-server/hello.png");
-//    text_image = cairo_image_surface_get_data (surface);
-    kms_episode_overlay_renderer_image_to_cvimage (surface, curImg, 10, 20);
-    cairo_surface_destroy (surface);
-
-//    g_free(text_image);
-  }
+//
+//  // draw text using pango
+//  pango_layout_set_markup (self->priv->layout,
+//      "Hello!@#World 123aslkdjf;lnxz,.v", 40);
+//  if (1) {
+//    PangoRectangle ink_rect, logical_rect;
+//    gint width, height;
+//    cairo_surface_t *surface;
+//    cairo_t *cr;
+//
+//    pango_layout_get_pixel_extents (self->priv->layout, &ink_rect,
+//        &logical_rect);
+//
+//    width = logical_rect.width + self->priv->shadow_offset;
+//    height = logical_rect.height + logical_rect.y + self->priv->shadow_offset;
+//    GST_INFO ("@rentao width=%d height=%d", width, height);
+////    width = 240;
+////    height = 80;
+//    surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, width, height);
+////    text_image = g_realloc (text_image, 4 * width * height);
+////    surface = cairo_image_surface_create_for_data (text_image,
+////            CAIRO_FORMAT_ARGB32, width, height, width * 4);
+//
+//    cr = cairo_create (surface);
+//
+////    cairo_select_font_face (cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+////    cairo_set_font_size (cr, 12.0);
+//    cairo_set_source_rgb (cr, 1.0, 1.0, 1.0);
+//    cairo_move_to (cr, 0.0, 0.0);
+////    cairo_show_text (cr, "?");
+//
+//    pango_cairo_show_layout (cr, self->priv->layout);
+//    cairo_destroy (cr);
+//
+////    styleZone = cvCreateImage ( cvSize(width, height), 8, 4);
+////    styleZone->imageData = (char *)cairo_image_surface_get_data(surface);
+////    cvAdd (curImg, styleZone, curImg, NULL);
+//
+////    cairo_surface_write_to_png (surface,
+////        "/var/log/kurento-media-server/hello.png");
+////    text_image = cairo_image_surface_get_data (surface);
+//    kms_episode_overlay_renderer_image_to_cvimage (surface, curImg, 10, 20);
+//    cairo_surface_destroy (surface);
+//
+////    g_free(text_image);
+//  }
 
   KMS_EPISODE_OVERLAY_UNLOCK (self);
 
@@ -705,6 +753,8 @@ kms_episode_overlay_dispose (GObject * object)
 static void
 kms_episode_overlay_finalize (GObject * object)
 {
+  int i;
+
   KmsEpisodeOverlay *episodeoverlay = KMS_EPISODE_OVERLAY (object);
 
   if (episodeoverlay->priv->cvImage != NULL)
@@ -729,6 +779,11 @@ kms_episode_overlay_finalize (GObject * object)
 
   if (episodeoverlay->priv->style != NULL)
     g_free (episodeoverlay->priv->style);
+
+  for (i = 0; i < MAX_VIEW_COUNT; i++) {
+    if (episodeoverlay->priv->views[i].textImage != NULL)
+      cairo_surface_destroy (episodeoverlay->priv->views[i].textImage);
+  }
 
   g_rec_mutex_clear (&episodeoverlay->priv->mutex);
 
@@ -762,6 +817,7 @@ kms_episode_overlay_init (KmsEpisodeOverlay * self)
   for (i = 0; i < MAX_VIEW_COUNT; i++) {
     self->priv->views[i].width = -1;
     self->priv->views[i].height = -1;
+    self->priv->views[i].textImage = NULL;
   }
 
   // init pango context

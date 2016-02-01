@@ -120,6 +120,7 @@ struct _KmsStyleCompositeMixerPrivate
   gint pad_x, pad_y, line_weight;
   gchar *background_image;
   gchar *style;
+  gchar font_desc[64];
 //  GstElement *source, *jpg_decoder;
 //  GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale,
 //      *textoverlay;
@@ -305,8 +306,8 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
   pad_top = self->priv->pad_y / 2 + line_weight;
 
   g_snprintf (jsonStyle, 2048,
-      "{'width':%d, 'height':%d, 'enable':%d, 'views':[", o_width, o_height,
-      (mappedCount <= 1) ? 0 : 1);
+      "{'width':%d, 'height':%d, 'font-desc':'%s', 'enable':%d, 'views':[",
+      o_width, o_height, self->priv->font_desc, (mappedCount <= 1) ? 0 : 1);
 
   // draw the views.
   curColumn = 0;
@@ -605,8 +606,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -932,7 +933,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   GError *error;
   JsonReader *reader;
   gint width = 0, height = 0, pad_x = 0, pad_y = 0, line = 0, count, i, id;
-  const gchar *background, *text;
+  const gchar *background, *text, *fontdesc_str;
   gchar **members;
   gint n_members, mi;
 
@@ -962,6 +963,16 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
     self->priv->output_height = height;
   }
   json_reader_end_member (reader);
+
+  // handle font description
+  if (json_reader_read_member (reader, "font-desc")) {
+    fontdesc_str = json_reader_get_string_value (reader);
+    if (fontdesc_str != NULL) {
+      g_strlcpy (self->priv->font_desc, fontdesc_str, 64);
+      GST_INFO ("@rentao set font-desc=%s", fontdesc_str);
+    }
+  }
+  json_reader_end_element (reader);
 
   json_reader_read_member (reader, "background");
   background = json_reader_get_string_value (reader);
@@ -1229,13 +1240,17 @@ kms_style_composite_mixer_get_property (GObject * object, guint property_id,
     }
     case PROP_STYLE:
     {
-      gchar style[512];
+      gchar style[2048];
 
-      g_snprintf (style, 512,
-          "{width:%d, height:%d, 'pad-x':%d, 'pad-y':%d, 'line-weight':%d, background:'%s'}",
+      g_snprintf (style, 2048,
+          "{width:%d, height:%d, 'pad-x':%d, 'pad-y':%d, 'line-weight':%d, 'font-desc':'%s', background:'%s', views:[{id=%d, text='%s'},{id=%d, text='%s'},{id=%d, text='%s'},{id=%d, text='%s'}]}",
           self->priv->output_width, self->priv->output_height,
           self->priv->pad_x, self->priv->pad_y, self->priv->line_weight,
-          self->priv->background_image);
+          self->priv->font_desc, self->priv->background_image,
+          self->priv->views[0].id, self->priv->views[0].text,
+          self->priv->views[1].id, self->priv->views[1].text,
+          self->priv->views[2].id, self->priv->views[2].text,
+          self->priv->views[3].id, self->priv->views[3].text);
       g_value_set_string (value, style);
       GST_INFO ("@rentao getStyle(%s)", style);
       break;
@@ -1361,6 +1376,7 @@ kms_style_composite_mixer_init (KmsStyleCompositeMixer * self)
     self->priv->views[i].width = -1;
     self->priv->views[i].height = -1;
   }
+  g_strlcpy (self->priv->font_desc, "sans bold 16", 64);
 
   self->priv->loop = kms_loop_new ();
 }

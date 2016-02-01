@@ -573,6 +573,7 @@ function clearCandidatesQueue(sessionId) {
 
 function stop(sessionId) {
 	if (presenter !== null && presenter.webRtcEndpoint[sessionId]) {
+		//presenter.webRtcEndpoint[sessionId].disconnect(presenter.hubPorts[sessionId], "VIDEO");
 		presenter.hubPorts[sessionId].release();
 		presenter.webRtcEndpoint[sessionId].release();
 		delete presenter.webRtcEndpoint[sessionId];
