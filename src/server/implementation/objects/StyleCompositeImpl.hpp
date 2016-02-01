@@ -39,6 +39,8 @@ public:
 
   void setStyle (const std::string &style);
   std::string getStyle ();
+  void showView (int viewId);
+  void hideView (int viewId);
 
   /* Next methods are automatically implemented by code generator */
   virtual bool connect (const std::string &eventType,

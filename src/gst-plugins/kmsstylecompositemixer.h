@@ -68,6 +68,9 @@ struct _KmsStyleCompositeMixer
 struct _KmsStyleCompositeMixerClass
 {
   KmsBaseHubClass parent_class;
+
+  /* actions */
+  gboolean (*release_requested_pad) (KmsElement *self, const gchar *pad_name);
 };
 
 GType kms_style_composite_mixer_get_type (void);

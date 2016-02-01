@@ -606,8 +606,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -797,6 +797,13 @@ static void
 pad_removed_cb (GstElement * element, GstPad * pad, gpointer data)
 {
   GST_DEBUG ("Removed pad %" GST_PTR_FORMAT, pad);
+}
+
+static void
+pad_release_request_cb (GstElement * element, GstPad * pad, gpointer data)
+{
+  GST_INFO ("@rentao Release request pad %" GST_PTR_FORMAT, element);
+  GST_INFO ("@rentao Release request pad %" GST_PTR_FORMAT, pad);
 }
 
 static int
@@ -1177,6 +1184,8 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
 
   port_data = kms_style_composite_mixer_port_data_create (self, port_id);
   port_data->mixer_end_point = mixer_end_point;
+  g_signal_connect (port_data->mixer_end_point, "release-requested-pad",
+      G_CALLBACK (pad_release_request_cb), self);
 
   g_hash_table_insert (self->priv->ports, create_gint (port_id), port_data);
 
@@ -1295,6 +1304,15 @@ kms_style_composite_mixer_set_property (GObject * object, guint prop_id,
   KMS_STYLE_COMPOSITE_MIXER_UNLOCK (self);
 }
 
+static gboolean
+kms_style_composite_mixer_release_requested_pad_action (KmsElement * self,
+    const gchar * pad_name)
+{
+  GST_INFO ("@rentao Release request pad %s", pad_name);
+  GST_INFO ("@rentao Release request pad %" GST_PTR_FORMAT, self);
+  return TRUE;
+}
+
 static void
 kms_style_composite_mixer_class_init (KmsStyleCompositeMixerClass * klass)
 {
@@ -1314,6 +1332,15 @@ kms_style_composite_mixer_class_init (KmsStyleCompositeMixerClass * klass)
       GST_DEBUG_FUNCPTR (kms_style_composite_mixer_finalize);
   gobject_class->set_property = kms_style_composite_mixer_set_property;
   gobject_class->get_property = kms_style_composite_mixer_get_property;
+
+  g_signal_new ("release-requested-pad",
+      G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST,
+      G_STRUCT_OFFSET (KmsStyleCompositeMixerClass, release_requested_pad),
+      NULL, NULL, NULL, G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
+  klass->release_requested_pad =
+      GST_DEBUG_FUNCPTR
+      (kms_style_composite_mixer_release_requested_pad_action);
 
   base_hub_class->handle_port =
       GST_DEBUG_FUNCPTR (kms_style_composite_mixer_handle_port);

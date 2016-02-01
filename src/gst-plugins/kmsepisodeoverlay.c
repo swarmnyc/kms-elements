@@ -579,7 +579,7 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
     char filename[256];
 
     // save the frame to file for further checking.
-    g_snprintf (filename, 256, "/var/log/kurento-media-server/snapshot%04d.jpg",
+    g_snprintf (filename, 256, "/var/log/kurento-media-server/snapshot%03d.jpg",
         id++);
     GST_ERROR
         ("@rentao wront resolution, output=(%d,%d), current frame=(%d,%d), save this frame to %s.",

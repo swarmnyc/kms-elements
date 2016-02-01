@@ -36,6 +36,28 @@
             "type": "String"
           }
         }
+        ,{
+          "name": "showView",
+          "doc": "show the view by specified id, especially when the view's video reconneted.",
+          "params": [
+            {
+              "name": "id",
+              "doc": "the view's id, equals to it's maxOuputBitrate.",
+              "type": "int"
+            }
+          ]
+        }
+        ,{
+          "name": "hideView",
+          "doc": "hide the view by specified id, especially when the view's video disconnected.",
+          "params": [
+            {
+              "name": "id",
+              "doc": "the view's id, equals to it's maxOuputBitrate.",
+              "type": "int"
+            }
+          ]
+        }
       ]
     }
   ]

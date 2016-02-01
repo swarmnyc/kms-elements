@@ -41,6 +41,15 @@ std::string StyleCompositeImpl::getStyle ()
   return style;
 }
 
+void StyleCompositeImpl::showView (int viewId)
+{
+
+}
+void StyleCompositeImpl::hideView (int viewId)
+{
+
+}
+
 MediaObjectImpl *
 StyleCompositeImplFactory::createObject (const boost::property_tree::ptree
     &config, std::shared_ptr<MediaPipeline> mediaPipeline) const
