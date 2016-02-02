@@ -328,12 +328,12 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
 
     // only one view, show it full screen.
     if (mappedCount <= 1) {
-      src_width = o_width;
-      src_height = o_height;
-      v_width = o_width;
-      v_height = o_height;
-      left = 0;
-      top = 0;
+      src_width = o_width - 2;
+      src_height = o_height - 2;
+      v_width = o_width - 2;
+      v_height = o_height - 2;
+      left = 1;
+      top = 1;
     }
 
     filtercaps =
@@ -606,8 +606,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");

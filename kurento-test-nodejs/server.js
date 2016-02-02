@@ -34,6 +34,8 @@ var options =
 	key:  fs.readFileSync('keys/server.key'),
 	cert: fs.readFileSync('keys/server.crt')
 };
+
+var style = {width:800, height:600, 'pad-y':160, background:"http://placeimg.com/800/600/any.jpg", views:[]};
 var views_style = {views:[{width:640, height:480, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
 var presenter_sid = 1234;
 var app = express();
@@ -268,7 +270,7 @@ function startPresenter(sessionId, ws, sdpOffer, callback) {
 					if (error) {
 						return callback(error);
 					}
-					var style = {width:800, height:600, 'pad-y':160, background:"http://placeimg.com/800/600/any.jpg", views:[{width:800, height:600, text:"Host Kurento"},{id:1234, width:800, height:600, text:"Guest: Tao"},{id:3, text:"Guuest:3"},{text:"Guest: Alex"}]};
+					//var style = {width:800, height:600, 'pad-y':160, background:"http://placeimg.com/800/600/any.jpg", views]};
 					_composite.setStyle(JSON.stringify(style));
 					_composite.getStyle(function(err, ret) {
 						console.log( "getStyle return:" + ret );
@@ -350,6 +352,9 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
 			//	console.log(err);
 			//	console.log(obj);
 			//});
+			style.views.push({id:presenter_sid, width:800, height:600, text:"1234567890ID1234567890ID:"+presenter_sid});
+			presenter.composite.setStyle(JSON.stringify(style));
+			
 			_hubPort.setMaxOuputBitrate(presenter_sid, function(err, obj){
 				presenter_sid ++;
 				_hubPort.getMaxOuputBitrate(function(err, obj){
@@ -445,7 +450,7 @@ function startViewer(sessionId, ws, sdpOffer, callback) {
 						console.log(_composite)
 //						var style = {width:1280, height:768, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/1280/768/any.jpg"};
 //						var style = {width:800, height:600, 'pad-x': 140, 'pad-y': 140, background:"http://placeimg.com/800/600/any.jpg", views:[{width:400, height:500, text:"123"},{width:400, height:500, text:"1234"},{id:3},{text:"abc"}]};
-						var style = {width:640, height:480, 'pad-x': 120, 'pad-y': 120, views:[{width:640, height:480, text:"Host Kurento"},{text:"Guest: Tao"},{text:"Position3"},{text:"Guest: Alex"}]};
+						var style = {width:640, height:480, 'pad-x': 120, 'pad-y': 120, views:[{id:1234, width:640, height:480, text:"Host Kurento"},{text:"Guest: Tao"},{text:"Position3"},{text:"Guest: Alex"}]};
 						_composite.setStyle(JSON.stringify(style));
 						_composite.getStyle(function(err, ret) {
 							console.log( "getStyle return:" + ret );
@@ -577,6 +582,8 @@ function stop(sessionId) {
 		presenter.hubPorts[sessionId].release();
 		presenter.webRtcEndpoint[sessionId].release();
 		delete presenter.webRtcEndpoint[sessionId];
+		var style = {width:800, height:600, 'pad-y':10, background:"http://placeimg.com/1280/960/any.jpg", views:[{id:1234, width:800, height:600, text:"Host Kurento"}]};
+		presenter.composite.setStyle(JSON.stringify(style));
 
 	} else if (viewers[sessionId]) {
 		viewers[sessionId].hubPort.release();
