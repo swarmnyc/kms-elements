@@ -209,8 +209,10 @@ kms_episode_overlay_rebuild_text_images (KmsEpisodeOverlay * self)
       gint width, height;
       cairo_t *cr;
 
-      if (data->textImage != NULL)
+      if (data->textImage != NULL) {
         cairo_surface_destroy (data->textImage);
+        data->textImage = NULL;
+      }
       if (strlen (data->text) == 0)
         continue;
       // draw text on pango layout.

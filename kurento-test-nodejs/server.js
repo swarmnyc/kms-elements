@@ -37,13 +37,12 @@ var options =
 
 var style = {width:1280, height:720, 'pad-y':160, background:"http://placeimg.com/800/600/any.jpg", views:[]};
 var views_style = {views:[{width:640, height:480, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
-var presenter_sid = 1234;
 var app = express();
 
 /*
  * Definition of global variables.
  */
-var idCounter = 0;
+var idCounter = 1234;
 var candidatesQueue = {};
 var kurentoClient = null;
 var presenter = null;
@@ -143,6 +142,7 @@ wss.on('connection', function(ws) {
 				break;
 
 			case 'action1':
+				presenter.composite.showView(parseInt(sessionId));
 				if (presenter.composite != null) {
 					console.log("getGStreamerDot");
 					presenter.pipeline.getGstreamerDot(function(err, ret){
@@ -209,14 +209,15 @@ wss.on('connection', function(ws) {
 				break;
 
 			case 'action2':
-				if (presenter.composite != null) {
-					views_style.views[0].width -= 64;
-					views_style.views[0].height -= 48;
-					presenter.composite.setStyle(JSON.stringify(views_style));
-
-					//var style = {background:"http://placeimg.com/800/600/any.jpg"};
-					//presenter.composite.setStyle(JSON.stringify(style));
-				}
+				presenter.composite.hideView(parseInt(sessionId));
+				//if (presenter.composite != null) {
+				//	views_style.views[0].width -= 64;
+				//	views_style.views[0].height -= 48;
+				//	presenter.composite.setStyle(JSON.stringify(views_style));
+                //
+				//	//var style = {background:"http://placeimg.com/800/600/any.jpg"};
+				//	//presenter.composite.setStyle(JSON.stringify(style));
+				//}
 				ws.send(JSON.stringify({
 					id : 'action2',
 					message : 'accepted'
@@ -352,11 +353,10 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
 			//	console.log(err);
 			//	console.log(obj);
 			//});
-			style.views.push({id:presenter_sid, width:1280, height:720, text:"ID:"+presenter_sid});
+			style.views.push({id:parseInt(sessionId), width:800, height:600, text:"ID:"+sessionId});
 			presenter.composite.setStyle(JSON.stringify(style));
 			
-			_hubPort.setMaxOuputBitrate(presenter_sid, function(err, obj){
-				presenter_sid ++;
+			_hubPort.setMaxOuputBitrate(parseInt(sessionId), function(err, obj){
 				_hubPort.getMaxOuputBitrate(function(err, obj){
 					console.log("hubPort.getMaxOuputBitrate(session id) = " + obj);
 				});

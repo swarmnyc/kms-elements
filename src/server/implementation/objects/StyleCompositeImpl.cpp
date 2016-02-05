@@ -41,13 +41,46 @@ std::string StyleCompositeImpl::getStyle ()
   return style;
 }
 
+bool StyleCompositeImpl::setViewEnableStatus (int viewId, char enable)
+{
+  int found, viewsStart;
+  gchar viewIdStr[64];
+  std::string style;
+  style = this->getStyle();
+  g_snprintf (viewIdStr, 64, "'id':%d,", viewId);
+  found = style.find ("'views':[", 0);
+
+  if (found < 0) {
+    return false;
+  }
+
+  viewsStart = found - 1;
+  found = style.find (viewIdStr, found + 9);
+
+  if (found < 0) {
+    return false;
+  }
+
+  found = style.find ("'enable':", found + 6);
+
+  if (found < 0) {
+    return false;
+  }
+
+  style.at (found + 9) = enable;
+  style.at (viewsStart) = '{';
+  this->setStyle (style.substr (viewsStart).c_str() );
+  return true;
+}
+
 void StyleCompositeImpl::showView (int viewId)
 {
-
+  setViewEnableStatus (viewId, '1');
 }
+
 void StyleCompositeImpl::hideView (int viewId)
 {
-
+  setViewEnableStatus (viewId, '0');
 }
 
 MediaObjectImpl *

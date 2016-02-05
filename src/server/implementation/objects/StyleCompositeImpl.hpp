@@ -53,6 +53,7 @@ public:
 
 private:
 
+  bool setViewEnableStatus (int viewId, char enable);
   class StaticConstructor
   {
   public:
