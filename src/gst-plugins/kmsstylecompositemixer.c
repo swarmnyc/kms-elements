@@ -291,8 +291,10 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
   for (i = 0; i < MAX_VIEW_COUNT; i++) {
     if (self->priv->views[i].enable != 0)
       continue;
-    if (viewMapping[i] != NULL)
+    if (viewMapping[i] != NULL) {
+      g_object_set (viewMapping[i]->video_mixer_pad, "alpha", 0.0, NULL);
       mappedCount--;
+    }
   }
 
   n_columns = mappedCount;
@@ -302,6 +304,11 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       "@rentao columns=%d rows=%d o_width=%d o_height=%d, mappedCount=%d, port_count=%d",
       n_columns, n_rows, o_width, o_height, mappedCount, port_count);
 
+  // no view need to show, quit.
+  if (n_columns == 0) {
+    g_list_free (values);
+    return;
+  }
   //configure the local stream size, left and top according to master output view.
   content_width = o_width - self->priv->pad_x;
   content_height = o_height - self->priv->pad_y;
@@ -625,8 +632,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
