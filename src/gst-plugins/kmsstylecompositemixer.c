@@ -328,12 +328,17 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
 
     // only one view, show it full screen.
     if (mappedCount <= 1) {
-      src_width = o_width - 2;
-      src_height = o_height - 2;
-      v_width = o_width - 2;
-      v_height = o_height - 2;
-      left = 1;
-      top = 1;
+      // make it a little bit smaller than full screen to prevent from offset.
+      src_width = o_width - 0;
+      src_height = o_height - 0;
+      v_width = o_width - 0;
+      v_height = o_height - 0;
+      left = 0;
+      top = 0;
+      g_object_set (port_data->video_mixer_pad, "width", o_width, "height",
+          o_height, NULL);
+    } else {
+      g_object_set (port_data->video_mixer_pad, "width", 0, "height", 0, NULL);
     }
 
     filtercaps =
@@ -349,6 +354,7 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
         "bottom", (src_height - v_height) / 2, NULL);
     g_object_set (port_data->videocrop, "left", (src_width - v_width) / 2,
         "right", (src_width - v_width) / 2, NULL);
+//    g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top, "width", v_width, "height", v_height,
     g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top,
         "alpha", 1.0, NULL);
 
@@ -606,8 +612,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -959,15 +965,19 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   KMS_STYLE_COMPOSITE_MIXER_LOCK (self);
   json_reader_read_member (reader, "width");
   width = json_reader_get_int_value (reader);
-  if (width > 0) {
+  if (width > 0 && self->priv->output_width <= 0) {
     self->priv->output_width = width;
+    if (self->priv->pad_x < 0)
+      self->priv->pad_x = width / 10;
   }
   json_reader_end_member (reader);
 
   json_reader_read_member (reader, "height");
   height = json_reader_get_int_value (reader);
-  if (height > 0) {
+  if (height > 0 && self->priv->output_height <= 0) {
     self->priv->output_height = height;
+    if (self->priv->pad_y < 0)
+      self->priv->pad_y = height / 10;
   }
   json_reader_end_member (reader);
 
@@ -1136,6 +1146,10 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
       capsfilter = gst_element_factory_make ("capsfilter", NULL);
       g_object_set (G_OBJECT (capsfilter), "caps-change-mode", 1, NULL);
 
+      if (self->priv->output_width <= 0) {
+        self->priv->output_width = 800;
+        self->priv->output_height = 600;
+      }
       filtercaps =
           gst_caps_new_simple ("video/x-raw",
           "width", G_TYPE_INT, self->priv->output_width,
@@ -1392,10 +1406,10 @@ kms_style_composite_mixer_init (KmsStyleCompositeMixer * self)
   self->priv->background_image = NULL;
   self->priv->style = NULL;
   //TODO:Obtain the dimensions of the bigger input stream
-  self->priv->output_height = 720;
-  self->priv->output_width = 1280;
-  self->priv->pad_x = self->priv->output_width / 10;
-  self->priv->pad_y = self->priv->output_height / 10;
+  self->priv->output_height = -1;
+  self->priv->output_width = -1;
+  self->priv->pad_x = -1;
+  self->priv->pad_y = -1;
   self->priv->line_weight = 2;
   self->priv->n_elems = 0;
   for (i = 0; i < MAX_VIEW_COUNT; i++) {

@@ -35,7 +35,7 @@ var options =
 	cert: fs.readFileSync('keys/server.crt')
 };
 
-var style = {width:800, height:600, 'pad-y':160, background:"http://placeimg.com/800/600/any.jpg", views:[]};
+var style = {width:1280, height:720, 'pad-y':160, background:"http://placeimg.com/800/600/any.jpg", views:[]};
 var views_style = {views:[{width:640, height:480, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
 var presenter_sid = 1234;
 var app = express();
@@ -352,7 +352,7 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
 			//	console.log(err);
 			//	console.log(obj);
 			//});
-			style.views.push({id:presenter_sid, width:800, height:600, text:"1234567890ID1234567890ID:"+presenter_sid});
+			style.views.push({id:presenter_sid, width:1280, height:720, text:"ID:"+presenter_sid});
 			presenter.composite.setStyle(JSON.stringify(style));
 			
 			_hubPort.setMaxOuputBitrate(presenter_sid, function(err, obj){
@@ -582,7 +582,7 @@ function stop(sessionId) {
 		presenter.hubPorts[sessionId].release();
 		presenter.webRtcEndpoint[sessionId].release();
 		delete presenter.webRtcEndpoint[sessionId];
-		var style = {width:800, height:600, 'pad-y':10, background:"http://placeimg.com/1280/960/any.jpg", views:[{id:1234, width:800, height:600, text:"Host Kurento"}]};
+		//var style = {width:800, height:600, 'pad-y':10, background:"http://placeimg.com/1280/960/any.jpg", views:[{id:1234, width:800, height:600, text:"Host Kurento"}]};
 		presenter.composite.setStyle(JSON.stringify(style));
 
 	} else if (viewers[sessionId]) {
