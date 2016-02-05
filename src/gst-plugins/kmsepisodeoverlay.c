@@ -545,7 +545,8 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   GstMapInfo info;
   int i;
   IplImage *curImg, *styleZone;
-  CvFont font;
+
+  //CvFont font;
   int left, right, top, bottom;
   KmsTextViewPrivate *data;
 
@@ -604,8 +605,17 @@ kms_episode_overlay_transform_frame_ip (GstVideoFilter * filter,
   GST_TRACE ("@rentao transform_frame_ip. width=%d, height=%d",
       cvGetSize (curImg).width, cvGetSize (curImg).height);
 
-  cvInitFont (&font, CV_FONT_HERSHEY_SIMPLEX, 0.75f, 0.75f, 0, 2, 8);   //rate of width
+  //cvInitFont (&font, CV_FONT_HERSHEY_SIMPLEX, 0.75f, 0.75f, 0, 2, 8);   //rate of width
 
+  // enable==2 means no view need to show, just show the background image only.
+  if (self->priv->enable == 2) {
+    KMS_EPISODE_OVERLAY_UNLOCK (self);
+    if (self->priv->background_image != NULL) {
+      cvResize (self->priv->background_image, curImg, CV_INTER_LINEAR);
+    }
+    gst_buffer_unmap (frame->buffer, &info);
+    return GST_FLOW_OK;
+  }
   // try to build the background.
   if (self->priv->background == NULL && self->priv->background_image != NULL) {
     styleZone =

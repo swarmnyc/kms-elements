@@ -244,6 +244,9 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       { NULL, NULL, NULL, NULL };
 
   if (port_count <= 0) {
+    // set to show background only.
+    g_object_set (G_OBJECT (self->priv->episodeoverlay), "style",
+        "{'enable':2}", NULL);
     return;
   }
   values = g_list_sort (values, compare_port_data);
@@ -306,6 +309,9 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
 
   // no view need to show, quit.
   if (n_columns == 0) {
+    // set to show background only.
+    g_object_set (G_OBJECT (self->priv->episodeoverlay), "style",
+        "{'enable':2}", NULL);
     g_list_free (values);
     return;
   }
@@ -1014,7 +1020,8 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
 
   json_reader_read_member (reader, "background");
   background = json_reader_get_string_value (reader);
-  if (background != NULL) {
+  if (background != NULL
+      && g_strcmp0 (background, self->priv->background_image) != 0) {
     g_free (self->priv->background_image);
     self->priv->background_image = g_strdup (background);
     kms_style_composite_mixer_setup_background_image (self);
