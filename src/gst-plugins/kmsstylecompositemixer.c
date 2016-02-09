@@ -357,12 +357,12 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       v_height = o_width * o_height / src_width;
       src_width = src_width * v_height / src_height;
       src_height = v_height;
-      v_width = o_width - 0;
-      v_height = o_height - 0;
-      left = 0;
-      top = 0;
-      g_object_set (port_data->video_mixer_pad, "width", o_width, "height",
-          o_height, NULL);
+      v_width = o_width - 2;
+      v_height = o_height - 2;
+      left = 1;
+      top = 1;
+      g_object_set (port_data->video_mixer_pad, "width", v_width, "height",
+          v_height, NULL);
     } else {
       g_object_set (port_data->video_mixer_pad, "width", 0, "height", 0, NULL);
     }
