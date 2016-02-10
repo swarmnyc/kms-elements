@@ -143,7 +143,9 @@ typedef struct _KmsStyleCompositeMixerData
   gint id;
   KmsStyleCompositeMixer *mixer;
   GstElement *capsfilter;
+  GstElement *capsfilter_scale;
   GstElement *videocrop;
+  GstElement *videoscale;
   GstElement *tee;
   GstElement *fakesink;
   gboolean input;
@@ -220,6 +222,22 @@ get_width_height (GstPad * pad, gint * width, gint * height)
 }
 #endif
 
+// resize the source views' resolution to full cover the output resolution and keep the ratio unchanged.
+#define SCALE_TO_JUST_FULL_COVER(sw, sh, ow, oh) \
+  if ((sw) * (oh) >= (sh) * (ow)) { \
+    sw = oh * sw / sh; \
+    sh = oh; \
+  } else { \
+    sh = ow * sh / sw; \
+    sw = ow; \
+  }
+
+#define CLEANUP_ELEMENT_FROM(self, element) \
+    gst_bin_remove (GST_BIN (self), g_object_ref (element)); \
+    gst_element_set_state (element, GST_STATE_NULL); \
+    g_object_unref (element); \
+    element = NULL;
+
 static void
 kms_style_composite_mixer_recalculate_sizes (gpointer data)
 {
@@ -239,9 +257,12 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
   gint pad_left, pad_top;
   gint port_count = self->priv->n_elems;
   gint width_reminder;
-  gint i, mappedCount = 0, curColumn, left, top, src_width, src_height;
+  gint i, mappedCount = 0, unmappedCount =
+      0, curColumn, left, top, src_width, src_height;
   KmsStyleCompositeMixerData *viewMapping[MAX_VIEW_COUNT] =
       { NULL, NULL, NULL, NULL };
+  KmsStyleCompositeMixerData *viewUnMapping[10] =
+      { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 
   if (port_count <= 0) {
     // set to show background only.
@@ -256,56 +277,82 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
   for (l = values; l != NULL; l = l->next) {
     KmsStyleCompositeMixerData *port_data = l->data;
 
-    // use max-output-bitrate as view id to bind mixer_endpoint to specified user.
-    g_object_get (G_OBJECT (port_data->mixer_end_point), "max-output-bitrate",
-        &port_data->viewId, NULL);
-
     if (port_data->input == FALSE) {
       continue;
     }
+    // make all the view to zero and transparent first.
+    g_object_set (port_data->videocrop, "top", 480 / 2 - 1,
+        "bottom", 480 / 2 - 1, NULL);
+    g_object_set (port_data->videocrop, "left", 640 / 2 - 1,
+        "right", 640 / 2 - 1, NULL);
+    g_object_set (port_data->video_mixer_pad, "alpha", 0.0, NULL);
+    if (mappedCount >= MAX_VIEW_COUNT)
+      goto unmapped;
+
+    // use max-output-bitrate as view id to bind mixer_endpoint to specified user.
+    g_object_get (G_OBJECT (port_data->mixer_end_point), "max-output-bitrate",
+        &port_data->viewId, NULL);
     // find view that match the ID.
     for (i = 0; i < MAX_VIEW_COUNT; i++) {
-      GST_INFO ("@rentao id=%d, viewId=%d, i=%d", self->priv->views[i].id,
-          port_data->viewId, i);
       if (self->priv->views[i].id == port_data->viewId) {
-        if (viewMapping[i] == NULL) {
-          viewMapping[i] = port_data;
-          mappedCount++;
+        if (self->priv->views[i].enable == 0)
           break;
-        }
+        if (viewMapping[i] != NULL)
+          goto unmapped;
+        GST_INFO ("@rentao mapped id=%d, viewId=%d, i=%d",
+            self->priv->views[i].id, port_data->viewId, i);
+        viewMapping[i] = port_data;
+        mappedCount++;
+        break;
       }
     }
     if (i < MAX_VIEW_COUNT)
       continue;                 // break for find a match view.
-    // find view without ID and available.
-    for (i = 0; i < MAX_VIEW_COUNT; i++) {
-      if (self->priv->views[i].id < 0) {
-        if (viewMapping[i] == NULL) {
-          viewMapping[i] = port_data;
-          mappedCount++;
-          break;
-        }
+  unmapped:
+    // store the unmapping views.
+    for (i = 0; i < 10; i++) {
+      if (viewUnMapping[i] == NULL) {
+        viewUnMapping[i] = port_data;
+        unmappedCount++;
+        GST_INFO ("@rentao unmapped viewId=%d, i=%d, unmappedCount=%d",
+            port_data->viewId, i, unmappedCount);
+        break;
       }
     }
-    if (mappedCount >= MAX_VIEW_COUNT)
-      break;
   }
+
+  // move the unmapped view to the empty slot.
+  while (mappedCount < MAX_VIEW_COUNT && unmappedCount > 0) {
+    for (i = 0; i < MAX_VIEW_COUNT; i++) {
+      if (viewMapping[i] != NULL)
+        continue;
+      if (self->priv->views[i].enable == 0)
+        continue;
+      unmappedCount--;
+      viewMapping[i] = viewUnMapping[unmappedCount];
+      viewUnMapping[unmappedCount] = NULL;
+      mappedCount++;
+      break;
+    }
+  }
+/*
   // find the view port that is disabled.
   for (i = 0; i < MAX_VIEW_COUNT; i++) {
-    if (self->priv->views[i].enable != 0)
+    if (self->priv->views[i].enable == 0)
       continue;
     if (viewMapping[i] != NULL) {
       g_object_set (viewMapping[i]->video_mixer_pad, "alpha", 0.0, NULL);
       mappedCount--;
     }
   }
-
+*/
   n_columns = mappedCount;
   n_rows = 1;
 
   GST_DEBUG_OBJECT (self,
-      "@rentao columns=%d rows=%d o_width=%d o_height=%d, mappedCount=%d, port_count=%d",
-      n_columns, n_rows, o_width, o_height, mappedCount, port_count);
+      "@rentao columns=%d rows=%d o_width=%d o_height=%d, mappedCount=%d, unmappedCount=%d, port_count=%d",
+      n_columns, n_rows, o_width, o_height, mappedCount, unmappedCount,
+      port_count);
 
   // no view need to show, quit.
   if (n_columns == 0) {
@@ -351,6 +398,8 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
     if (src_height < 0)
       src_height = o_height;
     // resize the source views' resolution to full cover the output resolution and keep the ratio unchanged.
+    SCALE_TO_JUST_FULL_COVER (src_width, src_height, o_width, o_height);
+/*
     if (src_width * o_height >= src_height * o_width) {
       src_width = o_height * src_width / src_height;
       src_height = o_height;
@@ -358,16 +407,17 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       src_height = o_width * src_height / src_width;
       src_width = o_width;
     }
+*/
     // only one view, show it full screen.
     if (mappedCount <= 1) {
       // make it a little bit smaller than full screen to prevent from offset.
 //      v_height = o_width * o_height / src_width;
 //      src_width = src_width * v_height / src_height;
 //      src_height = v_height;
-      v_width = o_width - 2;
-      v_height = o_height - 2;
-      left = 1;
-      top = 1;
+      v_width = o_width - 0;
+      v_height = o_height - 0;
+      left = 0;
+      top = 0;
 //      g_object_set (port_data->video_mixer_pad, "width", v_width, "height",
 //          v_height, NULL);
 //    } else {
@@ -380,6 +430,13 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
         "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
         GST_TYPE_FRACTION, 1, 1, NULL);
     g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
+    gst_caps_unref (filtercaps);
+
+    SCALE_TO_JUST_FULL_COVER (src_width, src_height, v_width, v_height);
+    filtercaps =
+        gst_caps_new_simple ("video/x-raw",
+        "width", G_TYPE_INT, src_width, "height", G_TYPE_INT, src_height, NULL);
+    g_object_set (port_data->capsfilter_scale, "caps", filtercaps, NULL);
     gst_caps_unref (filtercaps);
 
     // crop the source view and paste to master view.
@@ -396,10 +453,17 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
         top, left, pad_left, pad_top, src_width, src_height, v_width, v_height);
 
     // build the view style that will send to the episodeoverlay plugin.
-    g_snprintf (jsonView, 512,
-        "{'width':%d, 'height':%d, 'x':%d, 'y':%d, 'text':'%s'}%s",
-        v_width, v_height, left, top, self->priv->views[i].text,
-        (curColumn >= mappedCount - 1) ? "" : ",");
+    if (self->priv->views[i].id == port_data->viewId) {
+      g_snprintf (jsonView, 512,
+          "{'width':%d, 'height':%d, 'x':%d, 'y':%d, 'text':'%s'}%s",
+          v_width, v_height, left, top, self->priv->views[i].text,
+          (curColumn >= mappedCount - 1) ? "" : ",");
+    } else {
+      g_snprintf (jsonView, 512,
+          "{'width':%d, 'height':%d, 'x':%d, 'y':%d, 'text':'id:%d'}%s",
+          v_width, v_height, left, top, port_data->viewId,
+          (curColumn >= mappedCount - 1) ? "" : ",");
+    }
     g_strlcat (jsonStyle, jsonView, 2048);
     GST_INFO ("@rentao view json: (%s), i=%d, column=%d", jsonView, i,
         curColumn);
@@ -447,16 +511,25 @@ remove_elements_from_pipeline (KmsStyleCompositeMixerData * port_data)
   gst_element_set_state (port_data->capsfilter, GST_STATE_NULL);
   gst_element_set_state (port_data->tee, GST_STATE_NULL);
   gst_element_set_state (port_data->fakesink, GST_STATE_NULL);
+  gst_element_set_state (port_data->capsfilter_scale, GST_STATE_NULL);
+  gst_element_set_state (port_data->videoscale, GST_STATE_NULL);
+  gst_element_set_state (port_data->videocrop, GST_STATE_NULL);
 
   g_object_unref (port_data->capsfilter);
   g_object_unref (port_data->tee);
   g_object_unref (port_data->fakesink);
   g_object_unref (port_data->tee_sink_pad);
+  g_object_unref (port_data->capsfilter_scale);
+  g_object_unref (port_data->videoscale);
+  g_object_unref (port_data->videocrop);;
 
   port_data->tee_sink_pad = NULL;
   port_data->capsfilter = NULL;
   port_data->tee = NULL;
   port_data->fakesink = NULL;
+  port_data->videoscale = NULL;
+  port_data->capsfilter_scale = NULL;
+  port_data->videocrop = NULL;
 
   return G_SOURCE_REMOVE;
 }
@@ -598,23 +671,16 @@ kms_style_composite_mixer_port_data_destroy (gpointer data)
     }
     KMS_STYLE_COMPOSITE_MIXER_UNLOCK (self);
 
-    gst_element_unlink (port_data->capsfilter, port_data->tee);
-    gst_element_unlink (port_data->tee, port_data->fakesink);
+    gst_element_unlink_many (port_data->capsfilter, port_data->videoscale,
+        port_data->capsfilter_scale, port_data->videocrop, port_data->tee,
+        port_data->fakesink, NULL);
 
-    gst_bin_remove (GST_BIN (self), g_object_ref (port_data->capsfilter));
-    gst_element_set_state (port_data->capsfilter, GST_STATE_NULL);
-    g_object_unref (port_data->capsfilter);
-    port_data->capsfilter = NULL;
-
-    gst_bin_remove (GST_BIN (self), g_object_ref (port_data->tee));
-    gst_element_set_state (port_data->tee, GST_STATE_NULL);
-    g_object_unref (port_data->tee);
-    port_data->tee = NULL;
-
-    gst_bin_remove (GST_BIN (self), g_object_ref (port_data->fakesink));
-    gst_element_set_state (port_data->fakesink, GST_STATE_NULL);
-    g_object_unref (port_data->fakesink);
-    port_data->fakesink = NULL;
+    CLEANUP_ELEMENT_FROM (self, port_data->capsfilter);
+    CLEANUP_ELEMENT_FROM (self, port_data->capsfilter_scale);
+    CLEANUP_ELEMENT_FROM (self, port_data->videocrop);
+    CLEANUP_ELEMENT_FROM (self, port_data->videoscale);
+    CLEANUP_ELEMENT_FROM (self, port_data->fakesink);
+    CLEANUP_ELEMENT_FROM (self, port_data->tee);
   }
 
   padname = g_strdup_printf (AUDIO_SINK_PAD, port_data->id);
@@ -645,8 +711,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -741,8 +807,12 @@ kms_style_composite_mixer_port_data_create (KmsStyleCompositeMixer * mixer,
   data->fakesink = gst_element_factory_make ("fakesink", NULL);
   data->capsfilter = gst_element_factory_make ("capsfilter", NULL);
   data->videocrop = gst_element_factory_make ("videocrop", NULL);
-  g_object_set (data->videocrop, "top", 50, "left", 100, "right", 100, "bottom",
-      50, NULL);
+  data->videoscale = gst_element_factory_make ("videoscale", NULL);
+  data->capsfilter_scale = gst_element_factory_make ("capsfilter", NULL);
+  //g_object_set (data->videocrop, "top", 50, "left", 100, "right", 100, "bottom",
+  //    50, NULL);
+  g_object_set (data->videoscale, "method",
+      0 /*use nearest neighbour scaling (fast and ugly) */ , NULL);
 
   g_object_set (G_OBJECT (data->capsfilter), "caps-change-mode",
       1 /*delayed */ , NULL);
@@ -750,12 +820,15 @@ kms_style_composite_mixer_port_data_create (KmsStyleCompositeMixer * mixer,
   g_object_set (G_OBJECT (data->fakesink), "async", FALSE, "sync", FALSE, NULL);
 
   gst_bin_add_many (GST_BIN (mixer), data->capsfilter, data->videocrop,
-      data->tee, data->fakesink, NULL);
+      data->videoscale, data->capsfilter_scale, data->tee, data->fakesink,
+      NULL);
 
   gst_element_sync_state_with_parent (data->capsfilter);
   gst_element_sync_state_with_parent (data->tee);
   gst_element_sync_state_with_parent (data->fakesink);
   gst_element_sync_state_with_parent (data->videocrop);
+  gst_element_sync_state_with_parent (data->videoscale);
+  gst_element_sync_state_with_parent (data->capsfilter_scale);
 
   filtercaps =
       gst_caps_new_simple ("video/x-raw",
@@ -769,7 +842,8 @@ kms_style_composite_mixer_port_data_create (KmsStyleCompositeMixer * mixer,
   kms_base_hub_link_video_sink (KMS_BASE_HUB (mixer), data->id,
       data->capsfilter, "sink", FALSE);
 
-  gst_element_link (data->capsfilter, data->videocrop);
+  gst_element_link_many (data->capsfilter, data->videoscale,
+      data->capsfilter_scale, data->videocrop, NULL);
 
   data->tee_sink_pad = gst_element_get_static_pad (data->tee, "sink");
   gst_element_link_pads (data->videocrop, NULL, data->tee,
