@@ -350,21 +350,28 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       src_width = o_width;
     if (src_height < 0)
       src_height = o_height;
-
+    // resize the source views' resolution to full cover the output resolution and keep the ratio unchanged.
+    if (src_width * o_height >= src_height * o_width) {
+      src_width = o_height * src_width / src_height;
+      src_height = o_height;
+    } else {
+      src_height = o_width * src_height / src_width;
+      src_width = o_width;
+    }
     // only one view, show it full screen.
     if (mappedCount <= 1) {
       // make it a little bit smaller than full screen to prevent from offset.
-      v_height = o_width * o_height / src_width;
-      src_width = src_width * v_height / src_height;
-      src_height = v_height;
+//      v_height = o_width * o_height / src_width;
+//      src_width = src_width * v_height / src_height;
+//      src_height = v_height;
       v_width = o_width - 2;
       v_height = o_height - 2;
       left = 1;
       top = 1;
-      g_object_set (port_data->video_mixer_pad, "width", v_width, "height",
-          v_height, NULL);
-    } else {
-      g_object_set (port_data->video_mixer_pad, "width", 0, "height", 0, NULL);
+//      g_object_set (port_data->video_mixer_pad, "width", v_width, "height",
+//          v_height, NULL);
+//    } else {
+//      g_object_set (port_data->video_mixer_pad, "width", 0, "height", 0, NULL);
     }
 
     filtercaps =
@@ -638,8 +645,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -972,7 +979,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   GError *error;
   JsonReader *reader;
   gint width = 0, height = 0, pad_x = 0, pad_y = 0, line =
-      0, count, i, id, enable;
+      0, count, i, id, enable, show_hide_flag = 0;
   const gchar *background, *text, *fontdesc_str;
   gchar **members;
   gint n_members, mi;
@@ -1098,10 +1105,14 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
         json_reader_read_member (reader, "enable");
         enable = json_reader_get_int_value (reader);
         if (enable == 0) {
+          if (self->priv->views[i].enable != 0)
+            show_hide_flag = 1;
           self->priv->views[i].enable = 0;
           GST_INFO ("@rentao disable view[%d] with id=%d", i,
               self->priv->views[i].id);
         } else {
+          if (self->priv->views[i].enable == 0)
+            show_hide_flag = 1;
           self->priv->views[i].enable = 1;
         }
       }
@@ -1112,8 +1123,9 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   }
   json_reader_end_member (reader);
 
-  GST_INFO ("@rentao set views' count=%d", count);
-  if (count > 0) {
+  GST_INFO ("@rentao set views' count=%d, show_hide_flag=%d", count,
+      show_hide_flag);
+  if (show_hide_flag != 0) {
     kms_style_composite_mixer_recalculate_sizes (self);
   }
   KMS_STYLE_COMPOSITE_MIXER_UNLOCK (self);

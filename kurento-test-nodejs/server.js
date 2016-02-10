@@ -353,7 +353,8 @@ function addPresenter(sessionId, ws, sdpOffer, callback) {
 			//	console.log(err);
 			//	console.log(obj);
 			//});
-			style.views.push({id:parseInt(sessionId), width:800, height:600, text:"ID:"+sessionId});
+			if (sessionId <= 1236) style.views.push({id:parseInt(sessionId), width:128, height:72, text:"ID:"+sessionId});
+			else style.views.push({id:parseInt(sessionId), width:800, height:600, text:"ID:"+sessionId});
 			presenter.composite.setStyle(JSON.stringify(style));
 			
 			_hubPort.setMaxOuputBitrate(parseInt(sessionId), function(err, obj){
