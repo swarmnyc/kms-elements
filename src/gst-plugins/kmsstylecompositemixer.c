@@ -258,7 +258,7 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
   gint port_count = self->priv->n_elems;
   gint width_reminder;
   gint i, mappedCount = 0, unmappedCount =
-      0, curColumn, left, top, src_width, src_height;
+      0, curColumn, left, top, src_width, src_height, occupied;
   KmsStyleCompositeMixerData *viewMapping[MAX_VIEW_COUNT] =
       { NULL, NULL, NULL, NULL };
   KmsStyleCompositeMixerData *viewUnMapping[10] =
@@ -280,14 +280,11 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
     if (port_data->input == FALSE) {
       continue;
     }
-    // make all the view to zero and transparent first.
-    g_object_set (port_data->videocrop, "top", 480 / 2 - 1,
-        "bottom", 480 / 2 - 1, NULL);
-    g_object_set (port_data->videocrop, "left", 640 / 2 - 1,
-        "right", 640 / 2 - 1, NULL);
-    g_object_set (port_data->video_mixer_pad, "alpha", 0.0, NULL);
+    // make all the view to transparent first.
+    g_object_set (port_data->video_mixer_pad, "xpos", 0, "ypos", 0,
+        "alpha", 0.0, NULL);
     if (mappedCount >= MAX_VIEW_COUNT)
-      goto unmapped;
+      continue;
 
     // use max-output-bitrate as view id to bind mixer_endpoint to specified user.
     g_object_get (G_OBJECT (port_data->mixer_end_point), "max-output-bitrate",
@@ -299,7 +296,7 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
           break;
         if (viewMapping[i] != NULL)
           goto unmapped;
-        GST_INFO ("@rentao mapped id=%d, viewId=%d, i=%d",
+        GST_TRACE ("@rentao mapped id=%d, viewId=%d, i=%d",
             self->priv->views[i].id, port_data->viewId, i);
         viewMapping[i] = port_data;
         mappedCount++;
@@ -314,7 +311,7 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       if (viewUnMapping[i] == NULL) {
         viewUnMapping[i] = port_data;
         unmappedCount++;
-        GST_INFO ("@rentao unmapped viewId=%d, i=%d, unmappedCount=%d",
+        GST_TRACE ("@rentao unmapped viewId=%d, i=%d, unmappedCount=%d",
             port_data->viewId, i, unmappedCount);
         break;
       }
@@ -326,8 +323,8 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
     for (i = 0; i < MAX_VIEW_COUNT; i++) {
       if (viewMapping[i] != NULL)
         continue;
-      if (self->priv->views[i].enable == 0)
-        continue;
+//      if (self->priv->views[i].enable == 0)
+//        continue;
       unmappedCount--;
       viewMapping[i] = viewUnMapping[unmappedCount];
       viewUnMapping[unmappedCount] = NULL;
@@ -335,21 +332,9 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       break;
     }
   }
-/*
-  // find the view port that is disabled.
-  for (i = 0; i < MAX_VIEW_COUNT; i++) {
-    if (self->priv->views[i].enable == 0)
-      continue;
-    if (viewMapping[i] != NULL) {
-      g_object_set (viewMapping[i]->video_mixer_pad, "alpha", 0.0, NULL);
-      mappedCount--;
-    }
-  }
-*/
   n_columns = mappedCount;
   n_rows = 1;
-
-  GST_DEBUG_OBJECT (self,
+  GST_TRACE_OBJECT (self,
       "@rentao columns=%d rows=%d o_width=%d o_height=%d, mappedCount=%d, unmappedCount=%d, port_count=%d",
       n_columns, n_rows, o_width, o_height, mappedCount, unmappedCount,
       port_count);
@@ -384,18 +369,25 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
 
     if (port_data == NULL)
       continue;
+    // current port maybe not match to current view, set it to occupied, that means the port can not use the view's style.
+    if (self->priv->views[i].id == port_data->viewId)
+      occupied = 0;
+    else
+      occupied = 1;
+/*
     if (self->priv->views[i].enable == 0) {
       g_object_set (port_data->video_mixer_pad, "alpha", 0.0, NULL);    // make it disable (transparent)
       continue;
     }
+*/
     left = pad_left + b_width * curColumn;
     top = pad_top;
     // get the source view's resolution.
     src_width = self->priv->views[i].width;
     src_height = self->priv->views[i].height;
-    if (src_width < 0)
+    if (src_width < 0 || occupied == 1)
       src_width = o_width;
-    if (src_height < 0)
+    if (src_height < 0 || occupied == 1)
       src_height = o_height;
     // resize the source views' resolution to full cover the output resolution and keep the ratio unchanged.
     SCALE_TO_JUST_FULL_COVER (src_width, src_height, o_width, o_height);
@@ -448,12 +440,12 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
     g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top,
         "alpha", 1.0, NULL);
 
-    GST_DEBUG_OBJECT (self,
+    GST_TRACE_OBJECT (self,
         "@rentao top=%d left=%d, pad_left=%d pad_top=%d, src_width=%d src_height=%d, v_width=%d v_height=%d",
         top, left, pad_left, pad_top, src_width, src_height, v_width, v_height);
 
     // build the view style that will send to the episodeoverlay plugin.
-    if (self->priv->views[i].id == port_data->viewId) {
+    if (occupied == 0) {
       g_snprintf (jsonView, 512,
           "{'width':%d, 'height':%d, 'x':%d, 'y':%d, 'text':'%s'}%s",
           v_width, v_height, left, top, self->priv->views[i].text,
@@ -465,13 +457,13 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
           (curColumn >= mappedCount - 1) ? "" : ",");
     }
     g_strlcat (jsonStyle, jsonView, 2048);
-    GST_INFO ("@rentao view json: (%s), i=%d, column=%d", jsonView, i,
+    GST_TRACE ("@rentao view json: (%s), i=%d, column=%d", jsonView, i,
         curColumn);
     curColumn++;
   }
   // finishes the view style and set to episodeoverlay plugin.
   g_strlcat (jsonStyle, "]}", 2048);
-  GST_INFO ("@rentao style json: %s", jsonStyle);
+  GST_TRACE ("@rentao style json: %s", jsonStyle);
   g_object_set (G_OBJECT (self->priv->episodeoverlay), "style", jsonStyle,
       NULL);
 
@@ -711,8 +703,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -726,6 +718,9 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->video_mixer_pad =
       gst_element_request_pad (mixer->priv->videomixer,
       sink_pad_template, NULL, NULL);
+
+//  g_object_set (data->video_mixer_pad, "width", mixer->priv->output_width, "height",
+//      mixer->priv->output_height, NULL);
 
   tee_src = gst_element_get_request_pad (data->tee, "src_%u");
 
@@ -915,8 +910,8 @@ pad_removed_cb (GstElement * element, GstPad * pad, gpointer data)
 static void
 pad_release_request_cb (GstElement * element, GstPad * pad, gpointer data)
 {
-  GST_INFO ("@rentao Release request pad %" GST_PTR_FORMAT, element);
-  GST_INFO ("@rentao Release request pad %" GST_PTR_FORMAT, pad);
+  GST_TRACE ("@rentao Release request pad %" GST_PTR_FORMAT, element);
+  GST_TRACE ("@rentao Release request pad %" GST_PTR_FORMAT, pad);
 }
 
 static int
@@ -939,7 +934,7 @@ create_freezeimage_video (KmsStyleCompositeMixer * self)
     source = gst_element_factory_make ("souphttpsrc", NULL);
     g_object_set (source, "location", "http://placeimg.com/800/600/any.jpg",
         "is-live", TRUE, NULL);
-    GST_INFO ("@rentao using default background image");
+    GST_TRACE ("@rentao using default background image");
   } else if (bg_img[0] == '/') {
     if (!g_file_test (bg_img, G_FILE_TEST_EXISTS)) {
       GST_ERROR ("@rentao file %s not found.", bg_img);
@@ -947,11 +942,11 @@ create_freezeimage_video (KmsStyleCompositeMixer * self)
     }
     source = gst_element_factory_make ("filesrc", NULL);
     g_object_set (G_OBJECT (source), "location", bg_img, NULL);
-    GST_INFO ("@rentao using local file(%s) as background image", bg_img);
+    GST_TRACE ("@rentao using local file(%s) as background image", bg_img);
   } else {
     source = gst_element_factory_make ("souphttpsrc", NULL);
     g_object_set (source, "location", bg_img, "is-live", TRUE, NULL);
-    GST_INFO ("@rentao using http file(%s) as background image", bg_img);
+    GST_TRACE ("@rentao using http file(%s) as background image", bg_img);
   }
 
   filtercaps = gst_caps_new_simple ("image/jpeg",
@@ -1034,7 +1029,7 @@ kms_style_composite_mixer_setup_background_image (KmsStyleCompositeMixer * self)
 {
   gchar jsonStyle[512];
 
-  GST_INFO ("@rentao");
+  GST_TRACE ("@rentao");
 
   if (self->priv->episodeoverlay == NULL
       || self->priv->background_image == NULL)
@@ -1043,7 +1038,7 @@ kms_style_composite_mixer_setup_background_image (KmsStyleCompositeMixer * self)
       self->priv->background_image);
   g_object_set (G_OBJECT (self->priv->episodeoverlay), "style", jsonStyle,
       NULL);
-  GST_INFO ("@rentao style=%s", jsonStyle);
+  GST_TRACE ("@rentao style=%s", jsonStyle);
 }
 
 static gboolean
@@ -1094,7 +1089,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
     fontdesc_str = json_reader_get_string_value (reader);
     if (fontdesc_str != NULL) {
       g_strlcpy (self->priv->font_desc, fontdesc_str, 64);
-      GST_INFO ("@rentao set font-desc=%s", fontdesc_str);
+      GST_TRACE ("@rentao set font-desc=%s", fontdesc_str);
     }
   }
   json_reader_end_element (reader);
@@ -1106,7 +1101,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
     g_free (self->priv->background_image);
     self->priv->background_image = g_strdup (background);
     kms_style_composite_mixer_setup_background_image (self);
-    GST_INFO ("@rentao set background=%s", self->priv->background_image);
+    GST_TRACE ("@rentao set background=%s", self->priv->background_image);
     if (0)
       create_freezeimage_video (self);
   }
@@ -1116,7 +1111,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   pad_x = json_reader_get_int_value (reader);
   if (pad_x > 0) {
     self->priv->pad_x = pad_x;
-    GST_INFO ("@rentao set pad_x=%d", pad_x);
+    GST_TRACE ("@rentao set pad_x=%d", pad_x);
   }
   json_reader_end_member (reader);
 
@@ -1124,7 +1119,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   pad_y = json_reader_get_int_value (reader);
   if (pad_y > 0) {
     self->priv->pad_y = pad_y;
-    GST_INFO ("@rentao set pad_y=%d", pad_y);
+    GST_TRACE ("@rentao set pad_y=%d", pad_y);
   }
   json_reader_end_member (reader);
 
@@ -1132,7 +1127,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   line = json_reader_get_int_value (reader);
   if (line > 0) {
     self->priv->line_weight = line;
-    GST_INFO ("@rentao set line-weight=%d", line);
+    GST_TRACE ("@rentao set line-weight=%d", line);
   }
   json_reader_end_member (reader);
 
@@ -1150,13 +1145,13 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
         json_reader_read_member (reader, "id");
         id = json_reader_get_int_value (reader);
         self->priv->views[i].id = id;
-        GST_INFO ("@rentao set view[%d] id=%d", i, self->priv->views[i].id);
+        GST_TRACE ("@rentao set view[%d] id=%d", i, self->priv->views[i].id);
       } else if (g_strcmp0 (members[mi], "text") == 0) {
         json_reader_read_member (reader, "text");
         text = json_reader_get_string_value (reader);
         if (text != NULL) {
           g_strlcpy (self->priv->views[i].text, text, MAX_TEXT_LENGTH);
-          GST_INFO ("@rentao set view[%d] text=%s", i,
+          GST_TRACE ("@rentao set view[%d] text=%s", i,
               self->priv->views[i].text);
         }
       } else if (g_strcmp0 (members[mi], "width") == 0) {
@@ -1164,7 +1159,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
         width = json_reader_get_int_value (reader);
         if (width > 0) {
           self->priv->views[i].width = width;
-          GST_INFO ("@rentao set view[%d] width=%d", i,
+          GST_TRACE ("@rentao set view[%d] width=%d", i,
               self->priv->views[i].width);
         }
       } else if (g_strcmp0 (members[mi], "height") == 0) {
@@ -1172,7 +1167,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
         height = json_reader_get_int_value (reader);
         if (height > 0) {
           self->priv->views[i].height = height;
-          GST_INFO ("@rentao set view[%d] height=%d", i,
+          GST_TRACE ("@rentao set view[%d] height=%d", i,
               self->priv->views[i].height);
         }
       } else if (g_strcmp0 (members[mi], "enable") == 0) {
@@ -1182,7 +1177,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
           if (self->priv->views[i].enable != 0)
             show_hide_flag = 1;
           self->priv->views[i].enable = 0;
-          GST_INFO ("@rentao disable view[%d] with id=%d", i,
+          GST_TRACE ("@rentao disable view[%d] with id=%d", i,
               self->priv->views[i].id);
         } else {
           if (self->priv->views[i].enable == 0)
@@ -1197,7 +1192,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   }
   json_reader_end_member (reader);
 
-  GST_INFO ("@rentao set views' count=%d, show_hide_flag=%d", count,
+  GST_TRACE ("@rentao set views' count=%d, show_hide_flag=%d", count,
       show_hide_flag);
   if (show_hide_flag != 0) {
     kms_style_composite_mixer_recalculate_sizes (self);
@@ -1232,7 +1227,8 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
   if (self->priv->videomixer == NULL) {
     self->priv->videomixer = gst_element_factory_make ("compositor", NULL);
     g_object_set (G_OBJECT (self->priv->videomixer), "background",
-        1 /*black */ , "start-time-selection", 1 /*first */ , NULL);
+        1 /*black */ , "start-time-selection", 1 /*first */ , "width",
+        self->priv->output_width, "height", self->priv->output_height, NULL);
     self->priv->mixer_video_agnostic =
         gst_element_factory_make ("agnosticbin", NULL);
 
@@ -1295,7 +1291,7 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
 //      g_object_set (pad, "xpos", pad_x / 2, "ypos", pad_y / 2, "alpha", .6,
 //              NULL);
       g_object_unref (pad);
-      GST_ERROR ("@rentao create videosrc w=%d, h=%d, x=%d, y=%d",
+      GST_TRACE ("@rentao create videosrc w=%d, h=%d, x=%d, y=%d",
           self->priv->output_width, self->priv->output_height, pad_x, pad_y);
 
       gst_element_sync_state_with_parent (capsfilter);
@@ -1343,7 +1339,7 @@ kms_style_composite_mixer_dispose (GObject * object)
   KMS_STYLE_COMPOSITE_MIXER_UNLOCK (self);
   g_clear_object (&self->priv->loop);
 
-//  GST_INFO ("@rentao, dispose, background=%s", self->priv->background_image);
+//  GST_TRACE ("@rentao, dispose, background=%s", self->priv->background_image);
   G_OBJECT_CLASS (kms_style_composite_mixer_parent_class)->dispose (object);
 }
 
@@ -1365,7 +1361,7 @@ kms_style_composite_mixer_finalize (GObject * object)
   if (self->priv->style != NULL)
     g_free (self->priv->style);
 
-//  GST_INFO ("@rentao, finalize, background=%s", self->priv->background_image);
+//  GST_TRACE ("@rentao, finalize, background=%s", self->priv->background_image);
   G_OBJECT_CLASS (kms_style_composite_mixer_parent_class)->finalize (object);
 }
 
@@ -1375,7 +1371,7 @@ kms_style_composite_mixer_get_property (GObject * object, guint property_id,
 {
   KmsStyleCompositeMixer *self = KMS_STYLE_COMPOSITE_MIXER (object);
 
-  GST_ERROR ("@rentao kms_composite_get_property %d", property_id);
+  GST_TRACE ("@rentao kms_composite_get_property %d", property_id);
 
   KMS_STYLE_COMPOSITE_MIXER_LOCK (self);
 
@@ -1402,7 +1398,7 @@ kms_style_composite_mixer_get_property (GObject * object, guint property_id,
           self->priv->views[2].text, self->priv->views[3].id,
           self->priv->views[3].enable, self->priv->views[3].text);
       g_value_set_string (value, style);
-      GST_INFO ("@rentao getStyle(%s)", style);
+      GST_TRACE ("@rentao getStyle(%s)", style);
       break;
     }
     default:
@@ -1419,7 +1415,7 @@ kms_style_composite_mixer_set_property (GObject * object, guint prop_id,
 {
   KmsStyleCompositeMixer *self = KMS_STYLE_COMPOSITE_MIXER (object);
 
-//  GST_ERROR_OBJECT (object, "@rentao kms_composite_set_property %d", prop_id);
+//  GST_TRACE_OBJECT (object, "@rentao kms_composite_set_property %d", prop_id);
 
   KMS_STYLE_COMPOSITE_MIXER_LOCK (self);
   switch (prop_id) {
@@ -1428,13 +1424,13 @@ kms_style_composite_mixer_set_property (GObject * object, guint prop_id,
 //      self->priv->background_image = g_value_dup_string (value);
 //      ret = create_freezeimage_video (self);
 //
-//      GST_ERROR_OBJECT (object, "@rentao create_freezeimage_video return %d",
+//      GST_TRACE_OBJECT (object, "@rentao create_freezeimage_video return %d",
 //          ret);
       break;
     case PROP_STYLE:
       g_free (self->priv->style);
       self->priv->style = g_value_dup_string (value);
-      GST_INFO ("@rentao setStyle(%s)", self->priv->style);
+      GST_TRACE ("@rentao setStyle(%s)", self->priv->style);
       kms_style_composite_mixer_parse_style (self);
       break;
     default:
@@ -1449,8 +1445,8 @@ static gboolean
 kms_style_composite_mixer_release_requested_pad_action (KmsElement * self,
     const gchar * pad_name)
 {
-  GST_INFO ("@rentao Release request pad %s", pad_name);
-  GST_INFO ("@rentao Release request pad %" GST_PTR_FORMAT, self);
+  GST_TRACE ("@rentao Release request pad %s", pad_name);
+  GST_TRACE ("@rentao Release request pad %" GST_PTR_FORMAT, self);
   return TRUE;
 }
 
@@ -1461,11 +1457,11 @@ kms_style_composite_mixer_class_init (KmsStyleCompositeMixerClass * klass)
   KmsBaseHubClass *base_hub_class = KMS_BASE_HUB_CLASS (klass);
   GstElementClass *gstelement_class = GST_ELEMENT_CLASS (klass);
 
-  GST_ERROR ("@rentao");
+  GST_TRACE ("@rentao");
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
       "StyleCompositeMixer", "Generic",
-      "Mixer element that composes n input flows" " in one output flow",
-      "David Fernandez <d.fernandezlop@gmail.com>");
+      "Mixer element that composes n input flows in one output flow according to the specified style.",
+      "Tao Ren <tao@swarmnyc.com> <tour.ren.gz@gmail.com>");
 
   gobject_class->dispose =
       GST_DEBUG_FUNCPTR (kms_style_composite_mixer_dispose);
