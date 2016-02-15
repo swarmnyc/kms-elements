@@ -31,6 +31,8 @@
 using namespace kurento;
 using namespace boost::unit_test;
 
+static const std::string CAND_PREFIX = "candidate:";
+
 boost::property_tree::ptree config;
 std::string mediaPipelineId;
 ModuleManager moduleManager;
@@ -69,6 +71,22 @@ GF::GF()
 GF::~GF()
 {
   MediaSet::deleteMediaSet();
+}
+
+static void
+exchange_candidate (OnIceCandidate event,
+                    std::shared_ptr <WebRtcEndpointImpl> peer, bool useIpv6)
+{
+  bool isIpv6 = event.getCandidate()->getCandidate().substr (
+                  CAND_PREFIX.length() ).find (":") != std::string::npos;
+
+  if (isIpv6 != useIpv6) {
+    return;
+  }
+
+  BOOST_TEST_MESSAGE ("Offerer: adding candidate " +
+                      event.getCandidate()->getCandidate() );
+  peer->addIceCandidate (event.getCandidate() );
 }
 
 static std::shared_ptr <WebRtcEndpointImpl>
@@ -148,7 +166,7 @@ gathering_done ()
 }
 
 static  void
-ice_state_changes()
+ice_state_changes (bool useIpv6)
 {
   std::atomic<bool> ice_state_changed (false);
   std::condition_variable cv;
@@ -162,11 +180,11 @@ ice_state_changes()
   webRtcEpAnswerer->setName ("answerer");
 
   webRtcEpOfferer->signalOnIceCandidate.connect ([&] (OnIceCandidate event) {
-    webRtcEpAnswerer->addIceCandidate (event.getCandidate() );
+    exchange_candidate (event, webRtcEpAnswerer, useIpv6);
   });
 
   webRtcEpAnswerer->signalOnIceCandidate.connect ([&] (OnIceCandidate event) {
-    webRtcEpOfferer->addIceCandidate (event.getCandidate() );
+    exchange_candidate (event, webRtcEpOfferer, useIpv6);
   });
 
   webRtcEpOfferer->signalOnIceComponentStateChanged.connect ([&] (
@@ -194,6 +212,18 @@ ice_state_changes()
   releaseWebRtc (webRtcEpAnswerer);
 }
 
+static void
+ice_state_changes_ipv4 ()
+{
+  ice_state_changes (false);
+}
+
+static void
+ice_state_changes_ipv6 ()
+{
+  ice_state_changes (true);
+}
+
 static  void
 stun_turn_properties ()
 {
@@ -219,7 +249,7 @@ stun_turn_properties ()
 }
 
 static void
-media_state_changes ()
+media_state_changes (bool useIpv6)
 {
   std::atomic<bool> media_state_changed (false);
   std::condition_variable cv;
@@ -233,15 +263,11 @@ media_state_changes ()
   src->connect (webRtcEpOfferer);
 
   webRtcEpOfferer->signalOnIceCandidate.connect ([&] (OnIceCandidate event) {
-    BOOST_TEST_MESSAGE ("Offerer: adding candidate " +
-                        event.getCandidate()->getCandidate() );
-    webRtcEpAnswerer->addIceCandidate (event.getCandidate() );
+    exchange_candidate (event, webRtcEpAnswerer, useIpv6);
   });
 
   webRtcEpAnswerer->signalOnIceCandidate.connect ([&] (OnIceCandidate event) {
-    BOOST_TEST_MESSAGE ("Answerer: adding candidate " +
-                        event.getCandidate()->getCandidate() );
-    webRtcEpOfferer->addIceCandidate (event.getCandidate() );
+    exchange_candidate (event, webRtcEpOfferer, useIpv6);
   });
 
   webRtcEpOfferer->signalOnIceGatheringDone.connect ([&] (
@@ -285,8 +311,21 @@ media_state_changes ()
 }
 
 static void
+media_state_changes_ipv4 ()
+{
+  media_state_changes (false);
+}
+
+static void
+media_state_changes_ipv6 ()
+{
+  media_state_changes (true);
+}
+
+static void
 connectWebrtcEndpoints (std::shared_ptr <WebRtcEndpointImpl> webRtcEpOfferer,
-                        std::shared_ptr <WebRtcEndpointImpl> webRtcEpAnswerer)
+                        std::shared_ptr <WebRtcEndpointImpl> webRtcEpAnswerer,
+                        bool useIpv6)
 {
   std::atomic<bool> conn_state_changed (false);
   std::condition_variable cv;
@@ -294,15 +333,11 @@ connectWebrtcEndpoints (std::shared_ptr <WebRtcEndpointImpl> webRtcEpOfferer,
   std::unique_lock<std::mutex> lck (mtx);
 
   webRtcEpOfferer->signalOnIceCandidate.connect ([&] (OnIceCandidate event) {
-    BOOST_TEST_MESSAGE ("Offerer: adding candidate " +
-                        event.getCandidate()->getCandidate() );
-    webRtcEpAnswerer->addIceCandidate (event.getCandidate() );
+    exchange_candidate (event, webRtcEpAnswerer, useIpv6);
   });
 
   webRtcEpAnswerer->signalOnIceCandidate.connect ([&] (OnIceCandidate event) {
-    BOOST_TEST_MESSAGE ("Answerer: adding candidate " +
-                        event.getCandidate()->getCandidate() );
-    webRtcEpOfferer->addIceCandidate (event.getCandidate() );
+    exchange_candidate (event, webRtcEpOfferer, useIpv6);
   });
 
   webRtcEpOfferer->signalOnIceGatheringDone.connect ([&] (
@@ -352,26 +387,38 @@ connectWebrtcEndpoints (std::shared_ptr <WebRtcEndpointImpl> webRtcEpOfferer,
 }
 
 static void
-connection_state_changes ()
+connection_state_changes (bool useIpv6)
 {
   std::shared_ptr <WebRtcEndpointImpl> webRtcEpOfferer = createWebrtc();
   std::shared_ptr <WebRtcEndpointImpl> webRtcEpAnswerer = createWebrtc();
 
-  connectWebrtcEndpoints (webRtcEpOfferer, webRtcEpAnswerer);
+  connectWebrtcEndpoints (webRtcEpOfferer, webRtcEpAnswerer, useIpv6);
 
   releaseWebRtc (webRtcEpOfferer);
   releaseWebRtc (webRtcEpAnswerer);
 }
 
 static void
-check_webrtc_stats ()
+connection_state_changes_ipv4 ()
+{
+  connection_state_changes (false);
+}
+
+static void
+connection_state_changes_ipv6 ()
+{
+  connection_state_changes (true);
+}
+
+static void
+check_webrtc_stats (bool useIpv6)
 {
   std::map <std::string, std::shared_ptr<Stats>> stats;
   std::shared_ptr <WebRtcEndpointImpl> webRtcEpOfferer = createWebrtc();
   std::shared_ptr <WebRtcEndpointImpl> webRtcEpAnswerer = createWebrtc();
   std::shared_ptr<MediaPipelineImpl> pipeline;
 
-  connectWebrtcEndpoints (webRtcEpOfferer, webRtcEpAnswerer);
+  connectWebrtcEndpoints (webRtcEpOfferer, webRtcEpAnswerer, useIpv6);
 
   /* Now webrtcEndPoints are connected it's time to get stats */
   stats = webRtcEpAnswerer->getStats();
@@ -406,17 +453,189 @@ check_webrtc_stats ()
   releaseWebRtc (webRtcEpAnswerer);
 }
 
+static void
+check_webrtc_stats_ipv4 ()
+{
+  check_webrtc_stats (false);
+}
+
+static void
+check_webrtc_stats_ipv6 ()
+{
+  check_webrtc_stats (true);
+}
+
+static void
+check_exchange_candidates_on_sdp ()
+{
+  std::shared_ptr <WebRtcEndpointImpl> webRtcEpOfferer = createWebrtc();
+  std::shared_ptr <WebRtcEndpointImpl> webRtcEpAnswerer = createWebrtc();
+  std::atomic<bool> conn_state_changed (false);
+  std::condition_variable cv;
+  std::atomic<bool> offer_gathered (false);
+  std::condition_variable cv_offer_gathered;
+  std::atomic<bool> answer_gathered (false);
+  std::condition_variable cv_answer_gathered;
+  std::mutex mtx;
+  std::unique_lock<std::mutex> lck (mtx);
+
+  webRtcEpOfferer->signalOnIceGatheringDone.connect ([&] (
+  OnIceGatheringDone event) {
+    BOOST_TEST_MESSAGE ("Offerer: Gathering done");
+    offer_gathered = true;
+    cv_offer_gathered.notify_one();
+  });
+
+  webRtcEpAnswerer->signalOnIceGatheringDone.connect ([&] (
+  OnIceGatheringDone event) {
+    BOOST_TEST_MESSAGE ("Answerer: Gathering done");
+    answer_gathered = true;
+    cv_answer_gathered.notify_one();
+  });
+
+  webRtcEpAnswerer->signalConnectionStateChanged.connect ([&] (
+  ConnectionStateChanged event) {
+    conn_state_changed = true;
+    cv.notify_one();
+  });
+
+  std::string offer = webRtcEpOfferer->generateOffer ();
+  BOOST_TEST_MESSAGE ("offer: " + offer);
+
+  webRtcEpOfferer->gatherCandidates ();
+
+  cv_offer_gathered.wait (lck, [&] () {
+    return offer_gathered.load();
+  });
+
+  offer = webRtcEpOfferer->getLocalSessionDescriptor();
+
+  std::string answer = webRtcEpAnswerer->processOffer (offer);
+  BOOST_TEST_MESSAGE ("answer: " + answer);
+
+  webRtcEpAnswerer->gatherCandidates ();
+
+  cv_answer_gathered.wait (lck, [&] () {
+    return answer_gathered.load();
+  });
+
+  answer = webRtcEpAnswerer->getLocalSessionDescriptor();
+
+  if (webRtcEpAnswerer->getConnectionState ()->getValue () !=
+      ConnectionState::DISCONNECTED) {
+    BOOST_ERROR ("Connection must be disconnected");
+  }
+
+  webRtcEpOfferer->processAnswer (answer);
+
+  cv.wait (lck, [&] () {
+    return conn_state_changed.load();
+  });
+
+  if (!conn_state_changed) {
+    BOOST_ERROR ("Not conn state chagned");
+  }
+
+  if (webRtcEpAnswerer->getConnectionState ()->getValue () !=
+      ConnectionState::CONNECTED) {
+    BOOST_ERROR ("Connection must be connected");
+  }
+}
+
+static void
+check_codec_sdp ()
+{
+  std::shared_ptr <WebRtcEndpointImpl> webRtcEp = createWebrtc();
+
+  std::string offer ("v=0\r\n"
+                     "o=- 5403198809162161286 2 IN IP4 127.0.0.1\r\n"
+                     "s=-\r\n"
+                     "t=0 0\r\n"
+                     "a=group:BUNDLE audio\r\n"
+                     "a=msid-semantic: WMS\r\n"
+                     "m=audio 9 UDP/TLS/RTP/SAVPF 111 103 104 9 0 8 106 105 13 126\r\n"
+                     "c=IN IP4 0.0.0.0\r\n"
+                     "a=rtcp:9 IN IP4 0.0.0.0\r\n"
+                     "a=ice-ufrag:z5Ynp3MoUpUWP2II\r\n"
+                     "a=ice-pwd:1dhv/Ia7Vk4yGt/sugyhSz7Q\r\n"
+                     "a=fingerprint:sha-256 AF:FE:D2:3C:01:AB:51:65:0D:95:4A:47:1B:CB:68:CE:6A:A8:11:CC:86:00:5F:1C:10:01:42:44:E2:FE:7B:21\r\n"
+                     "a=setup:actpass\r\n"
+                     "a=mid:audio\r\n"
+                     "a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\n"
+                     "a=extmap:3 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n"
+                     "a=recvonly\r\n"
+                     "a=rtcp-mux\r\n"
+                     "a=rtpmap:111 opus/48000/2\r\n"
+                     "a=fmtp:111 minptime=10; useinbandfec=1\r\n"
+                     "a=maxptime:60\r\n");
+
+  BOOST_TEST_MESSAGE ("offer: " + offer);
+
+  std::string answer = webRtcEp->processOffer (offer);
+  BOOST_TEST_MESSAGE ("answer: " + answer);
+
+
+  if (answer.find ("opus/48000/2") == std::string::npos) {
+    BOOST_ERROR ("Answer doesn't contain opus");
+  }
+
+  releaseWebRtc (webRtcEp);
+  webRtcEp = createWebrtc();
+
+  offer = ("v=0\r\n"
+           "o=- 5403198809162161286 2 IN IP4 127.0.0.1\r\n"
+           "s=-\r\n"
+           "t=0 0\r\n"
+           "a=group:BUNDLE audio\r\n"
+           "a=msid-semantic: WMS\r\n"
+           "m=audio 9 UDP/TLS/RTP/SAVPF 111 103 104 9 0 8 106 105 13 126\r\n"
+           "c=IN IP4 0.0.0.0\r\n"
+           "a=rtcp:9 IN IP4 0.0.0.0\r\n"
+           "a=ice-ufrag:z5Ynp3MoUpUWP2II\r\n"
+           "a=ice-pwd:1dhv/Ia7Vk4yGt/sugyhSz7Q\r\n"
+           "a=fingerprint:sha-256 AF:FE:D2:3C:01:AB:51:65:0D:95:4A:47:1B:CB:68:CE:6A:A8:11:CC:86:00:5F:1C:10:01:42:44:E2:FE:7B:21\r\n"
+           "a=setup:actpass\r\n"
+           "a=mid:audio\r\n"
+           "a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\n"
+           "a=extmap:3 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n"
+           "a=recvonly\r\n"
+           "a=rtcp-mux\r\n"
+           "a=rtpmap:111 OPUS/48000/2\r\n"
+           "a=fmtp:111 minptime=10; useinbandfec=1\r\n"
+           "a=maxptime:60\r\n");
+
+  BOOST_TEST_MESSAGE ("offer: " + offer);
+
+  answer = webRtcEp->processOffer (offer);
+  BOOST_TEST_MESSAGE ("answer: " + answer);
+
+  if (answer.find ("OPUS/48000/2") == std::string::npos) {
+    BOOST_ERROR ("Answer doesn't contain opus");
+  }
+
+  releaseWebRtc (webRtcEp);
+}
+
 test_suite *
 init_unit_test_suite ( int , char *[] )
 {
   test_suite *test = BOOST_TEST_SUITE ( "WebRtcEndpoint" );
 
   test->add (BOOST_TEST_CASE ( &gathering_done ), 0, /* timeout */ 15);
-  test->add (BOOST_TEST_CASE ( &ice_state_changes ), 0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &ice_state_changes_ipv4 ), 0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &ice_state_changes_ipv6 ), 0, /* timeout */ 15);
   test->add (BOOST_TEST_CASE ( &stun_turn_properties ), 0, /* timeout */ 15);
-  test->add (BOOST_TEST_CASE ( &media_state_changes ), 0, /* timeout */ 15);
-  test->add (BOOST_TEST_CASE ( &connection_state_changes ), 0, /* timeout */ 15);
-  test->add (BOOST_TEST_CASE ( &check_webrtc_stats ), 0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &media_state_changes_ipv4 ), 0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &media_state_changes_ipv6 ), 0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &connection_state_changes_ipv4 ),
+             0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &connection_state_changes_ipv6 ),
+             0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &check_webrtc_stats_ipv4 ), 0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &check_webrtc_stats_ipv6 ), 0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &check_exchange_candidates_on_sdp ),
+             0, /* timeout */ 15);
+  test->add (BOOST_TEST_CASE ( &check_codec_sdp ), 0, /* timeout */ 15);
 
   return test;
 }

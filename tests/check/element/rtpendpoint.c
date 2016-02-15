@@ -31,6 +31,8 @@
 #define AUDIO_BW 30
 #define VIDEO_BW 500
 
+#define SINK_VIDEO_STREAM "sink_video_default"
+
 static GArray *
 create_codecs_array (gchar * codecs[])
 {
@@ -137,7 +139,8 @@ kms_element_request_srcpad (GstElement * src, KmsElementPadType pad_type)
 {
   gchar *padname;
 
-  g_signal_emit_by_name (src, "request-new-srcpad", pad_type, NULL, &padname);
+  g_signal_emit_by_name (src, "request-new-pad", pad_type, NULL, GST_PAD_SRC,
+      &padname);
   if (padname == NULL) {
     return FALSE;
   }
@@ -238,11 +241,8 @@ GST_START_TEST (loopback)
   g_signal_connect (G_OBJECT (outputfakesink), "handoff",
       G_CALLBACK (fakesink_hand_off), loop);
 
-  gst_bin_add_many (GST_BIN (pipeline), videotestsrc, agnosticbin,
-      rtpendpointsender, rtpendpointreceiver, outputfakesink, NULL);
-
-  gst_element_link (videotestsrc, agnosticbin);
-  connect_sink_async (rtpendpointsender, agnosticbin, pipeline, "sink_video");
+  connect_sink_async (rtpendpointsender, agnosticbin, pipeline,
+      SINK_VIDEO_STREAM);
 
   g_object_set_data (G_OBJECT (rtpendpointreceiver), VIDEO_SINK,
       outputfakesink);
@@ -250,6 +250,11 @@ GST_START_TEST (loopback)
       G_CALLBACK (connect_sink_on_srcpad_added), NULL);
   fail_unless (kms_element_request_srcpad (rtpendpointreceiver,
           KMS_ELEMENT_PAD_TYPE_VIDEO));
+
+  gst_bin_add_many (GST_BIN (pipeline), videotestsrc, agnosticbin,
+      rtpendpointsender, rtpendpointreceiver, outputfakesink, NULL);
+
+  gst_element_link (videotestsrc, agnosticbin);
 
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
@@ -405,23 +410,112 @@ GST_START_TEST (negotiation_offerer)
   g_free (answerer_sess_id);
 }
 
-GST_END_TEST static gboolean
-check_no_mid_attr (const GstSDPMedia * media)
+GST_END_TEST;
+
+GST_START_TEST (negotiation_offerer_ipv6)
 {
-  guint i, len;
+  GArray *audio_codecs_array, *video_codecs_array;
+  gchar *audio_codecs[] = { "OPUS/48000/1", "AMR/8000/1", NULL };
+  gchar *video_codecs[] = { "H263-1998/90000", "VP8/90000", NULL };
+  gchar *offerer_sess_id, *answerer_sess_id;
+  GstElement *offerer = gst_element_factory_make ("rtpendpoint", NULL);
+  GstElement *answerer = gst_element_factory_make ("rtpendpoint", NULL);
+  GstSDPMessage *offer = NULL, *answer = NULL;
+  GstSDPMessage *offerer_local_sdp = NULL, *offerer_remote_sdp = NULL;
+  gchar *offerer_local_sdp_str, *offerer_remote_sdp_str;
+  GstSDPMessage *answerer_local_sdp = NULL, *answerer_remote_sdp = NULL;
+  gchar *answerer_local_sdp_str, *answerer_remote_sdp_str;
+  gchar *sdp_str = NULL;
+  const GstSDPConnection *connection;
+  gboolean answer_ok;
 
-  len = gst_sdp_media_attributes_len (media);
+  audio_codecs_array = create_codecs_array (audio_codecs);
+  video_codecs_array = create_codecs_array (video_codecs);
+  g_object_set (offerer, "num-audio-medias", 1, "audio-codecs",
+      g_array_ref (audio_codecs_array), "num-video-medias", 1, "video-codecs",
+      g_array_ref (video_codecs_array), "use-ipv6", TRUE, NULL);
+  g_object_set (answerer, "num-audio-medias", 1, "audio-codecs",
+      g_array_ref (audio_codecs_array), "num-video-medias", 1, "video-codecs",
+      g_array_ref (video_codecs_array), "use-ipv6", TRUE, NULL);
+  g_array_unref (audio_codecs_array);
+  g_array_unref (video_codecs_array);
 
-  for (i = 0; i < len; i++) {
-    const GstSDPAttribute *a;
+  /* Session creation */
+  g_signal_emit_by_name (offerer, "create-session", &offerer_sess_id);
+  GST_DEBUG_OBJECT (offerer, "Created session with id '%s'", offerer_sess_id);
+  g_signal_emit_by_name (answerer, "create-session", &answerer_sess_id);
+  GST_DEBUG_OBJECT (answerer, "Created session with id '%s'", answerer_sess_id);
 
-    a = gst_sdp_media_get_attribute (media, i);
+  /* SDP negotiation */
+  g_signal_emit_by_name (offerer, "generate-offer", offerer_sess_id, &offer);
+  fail_unless (offer != NULL);
+  GST_DEBUG ("Offer:\n%s", (sdp_str = gst_sdp_message_as_text (offer)));
+  g_free (sdp_str);
+  sdp_str = NULL;
+  connection = gst_sdp_message_get_connection (offer);
 
-    fail_if (g_strcmp0 (a->key, "mid") == 0);
-  }
+  fail_unless (g_strcmp0 (connection->address, "0.0.0.0"));
+  fail_unless (g_strcmp0 (connection->address, "::"));
 
-  return TRUE;
+  g_signal_emit_by_name (answerer, "process-offer", answerer_sess_id, offer,
+      &answer);
+  fail_unless (answer != NULL);
+  GST_DEBUG ("Answer:\n%s", (sdp_str = gst_sdp_message_as_text (answer)));
+  g_free (sdp_str);
+  sdp_str = NULL;
+
+  g_signal_emit_by_name (offerer, "process-answer", offerer_sess_id, answer,
+      &answer_ok);
+  fail_unless (answer_ok);
+
+  gst_sdp_message_free (offer);
+  gst_sdp_message_free (answer);
+
+  g_signal_emit_by_name (offerer, "get-local-sdp", offerer_sess_id,
+      &offerer_local_sdp);
+  fail_unless (offerer_local_sdp != NULL);
+  g_signal_emit_by_name (offerer, "get-remote-sdp", offerer_sess_id,
+      &offerer_remote_sdp);
+  fail_unless (offerer_remote_sdp != NULL);
+
+  g_signal_emit_by_name (answerer, "get-local-sdp", answerer_sess_id,
+      &answerer_local_sdp);
+  fail_unless (answerer_local_sdp != NULL);
+  g_signal_emit_by_name (answerer, "get-remote-sdp", answerer_sess_id,
+      &answerer_remote_sdp);
+  fail_unless (answerer_remote_sdp != NULL);
+
+  offerer_local_sdp_str = gst_sdp_message_as_text (offerer_local_sdp);
+  offerer_remote_sdp_str = gst_sdp_message_as_text (offerer_remote_sdp);
+
+  answerer_local_sdp_str = gst_sdp_message_as_text (answerer_local_sdp);
+  answerer_remote_sdp_str = gst_sdp_message_as_text (answerer_remote_sdp);
+
+  GST_DEBUG ("Offerer local SDP\n%s", offerer_local_sdp_str);
+  GST_DEBUG ("Offerer remote SDPr\n%s", offerer_remote_sdp_str);
+  GST_DEBUG ("Answerer local SDP\n%s", answerer_local_sdp_str);
+  GST_DEBUG ("Answerer remote SDP\n%s", answerer_remote_sdp_str);
+
+  fail_unless (g_strcmp0 (offerer_local_sdp_str, answerer_remote_sdp_str) == 0);
+  fail_unless (g_strcmp0 (offerer_remote_sdp_str, answerer_local_sdp_str) == 0);
+
+  g_free (offerer_local_sdp_str);
+  g_free (offerer_remote_sdp_str);
+  g_free (answerer_local_sdp_str);
+  g_free (answerer_remote_sdp_str);
+
+  gst_sdp_message_free (offerer_local_sdp);
+  gst_sdp_message_free (offerer_remote_sdp);
+  gst_sdp_message_free (answerer_local_sdp);
+  gst_sdp_message_free (answerer_remote_sdp);
+
+  g_object_unref (offerer);
+  g_object_unref (answerer);
+  g_free (offerer_sess_id);
+  g_free (answerer_sess_id);
 }
+
+GST_END_TEST;
 
 GST_START_TEST (process_bundle_offer)
 {
@@ -432,7 +526,6 @@ GST_START_TEST (process_bundle_offer)
   gchar *sess_id;
   GstSDPMessage *offer = NULL, *answer = NULL;
   gchar *aux = NULL;
-  guint i, len;
 
   static const gchar *offer_str = "v=0\r\n"
       "o=- 1783800438437245920 2 IN IP4 127.0.0.1\r\n"
@@ -533,15 +626,8 @@ GST_START_TEST (process_bundle_offer)
   g_free (aux);
   aux = NULL;
 
-  /* No bundle group must apper in the response */
+  /* No bundle group must appear in the response */
   fail_if (gst_sdp_message_get_attribute_val (answer, "group") != NULL);
-
-  len = gst_sdp_message_medias_len ((const GstSDPMessage *) answer);
-
-  for (i = 0; i < len; i++) {
-    check_no_mid_attr (gst_sdp_message_get_media ((const GstSDPMessage *)
-            answer, i));
-  }
 
   gst_sdp_message_free (offer);
   gst_sdp_message_free (answer);
@@ -619,7 +705,7 @@ GST_START_TEST (test_port_range)
   guint i;
 
   min_port = 50000;
-  max_port = 50020;
+  max_port = 50007;
 
   audio_codecs_array = create_codecs_array (audio_codecs);
   video_codecs_array = create_codecs_array (video_codecs);
@@ -699,7 +785,7 @@ GST_START_TEST (test_not_enough_ports)
   guint port;
 
   min_port = 60000;
-  max_port = 60002;
+  max_port = 60001;
 
   audio_codecs_array = create_codecs_array (audio_codecs);
   video_codecs_array = create_codecs_array (video_codecs);
@@ -758,6 +844,7 @@ sdp_suite (void)
   suite_add_tcase (s, tc_chain);
 
   tcase_add_test (tc_chain, negotiation_offerer);
+  tcase_add_test (tc_chain, negotiation_offerer_ipv6);
   tcase_add_test (tc_chain, loopback);
   tcase_add_test (tc_chain, process_bundle_offer);
   tcase_add_test (tc_chain, generate_offer_bw_limited);

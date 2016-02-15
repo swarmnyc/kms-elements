@@ -21,8 +21,7 @@ add_dependencies(test_recorderendpoint ${LIBRARY_NAME}plugins)
 target_include_directories(test_recorderendpoint PRIVATE
                            ${KmsGstCommons_INCLUDE_DIRS}
                            ${gstreamer-1.5_INCLUDE_DIRS}
-                           ${gstreamer-check-1.5_INCLUDE_DIRS}
-                           "${CMAKE_CURRENT_SOURCE_DIR}/../../../src/gst-plugins")
+                           ${gstreamer-check-1.5_INCLUDE_DIRS})
 target_link_libraries(test_recorderendpoint
                       ${gstreamer-1.5_LIBRARIES}
                       ${gstreamer-check-1.5_LIBRARIES}
@@ -114,15 +113,17 @@ target_link_libraries(test_dispatcheronetomany
                       ${gstreamer-check-1.5_LIBRARIES}
                       ${KmsGstCommons_LIBRARIES})
 
-add_test_program (test_dispatcher dispatcher.c)
-target_include_directories(test_dispatcher PRIVATE
-                           ${KmsGstCommons_INCLUDE_DIRS}
-                           ${gstreamer-1.5_INCLUDE_DIRS}
-                           ${gstreamer-check-1.5_INCLUDE_DIRS})
-target_link_libraries(test_dispatcher
-                      ${gstreamer-1.5_LIBRARIES}
-                      ${gstreamer-check-1.5_LIBRARIES}
-                      ${KmsGstCommons_LIBRARIES})
+if (${ENABLE_DEBUGGING_TESTS})
+  add_test_program (test_dispatcher dispatcher.c)
+  target_include_directories(test_dispatcher PRIVATE
+                            ${KmsGstCommons_INCLUDE_DIRS}
+                            ${gstreamer-1.5_INCLUDE_DIRS}
+                            ${gstreamer-check-1.5_INCLUDE_DIRS})
+  target_link_libraries(test_dispatcher
+                        ${gstreamer-1.5_LIBRARIES}
+                        ${gstreamer-check-1.5_LIBRARIES}
+                        ${KmsGstCommons_LIBRARIES})
+endif()
 
 #add_test_program (test_alphablending alphablending.c)
 #add_dependencies(test_alphablending kmstestutils)
@@ -156,6 +157,7 @@ if (${ENABLE_DEBUGGING_TESTS})
   target_link_libraries(test_dtlssrtp ${gstreamer-1.5_LIBRARIES}
                                       ${gstreamer-check-1.5_LIBRARIES}
                                       ${gio-2.0_LIBRARIES})
+endif()
 
 add_test_program (test_webrtc_data_proto webrtc_data_proto.c)
 add_dependencies(test_webrtc_data_proto ${LIBRARY_NAME}plugins)
@@ -171,4 +173,16 @@ target_link_libraries(test_webrtc_data_proto
                       ${nice_LIBRARIES}
                       ${KmsGstCommons_LIBRARIES}
                       webrtcdataproto)
-endif()
+
+add_test_program (test_srtp srtp.c)
+add_dependencies(test_srtp ${LIBRARY_NAME}plugins)
+target_include_directories(test_srtp PRIVATE
+                           ${gstreamer-1.5_INCLUDE_DIRS}
+                           ${gstreamer-rtp-1.5_INCLUDE_DIRS}
+                           ${gstreamer-check-1.5_INCLUDE_DIRS}
+                           ${KmsGstCommons_INCLUDE_DIRS})
+target_link_libraries(test_srtp
+                      ${gstreamer-1.5_LIBRARIES}
+                      ${gstreamer-rtp-1.5_LIBRARIES}
+                      ${gstreamer-check-1.5_LIBRARIES}
+                      ${KmsGstCommons_LIBRARIES})

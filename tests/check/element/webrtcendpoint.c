@@ -29,6 +29,9 @@
 #include "config.h"
 #endif
 
+#define SINK_VIDEO_STREAM "sink_video_default"
+#define SINK_AUDIO_STREAM "sink_audio_default"
+
 static GArray *
 create_codecs_array (gchar * codecs[])
 {
@@ -327,7 +330,8 @@ kms_element_request_srcpad (GstElement * src, KmsElementPadType pad_type)
 {
   gchar *padname;
 
-  g_signal_emit_by_name (src, "request-new-srcpad", pad_type, NULL, &padname);
+  g_signal_emit_by_name (src, "request-new-pad", pad_type, NULL, GST_PAD_SRC,
+      &padname);
   if (padname == NULL) {
     return FALSE;
   }
@@ -428,7 +432,7 @@ test_video_sendonly (const gchar * video_enc_name, GstStaticCaps expected_caps,
   gst_bin_add (GST_BIN (pipeline), sender);
 
   connect_sink_async (sender, videotestsrc, video_enc, NULL, pipeline,
-      "sink_video");
+      SINK_VIDEO_STREAM);
 
   gst_bin_add (GST_BIN (pipeline), receiver);
 
@@ -594,11 +598,11 @@ test_video_sendrecv (const gchar * video_enc_name,
   /* Add elements */
   gst_bin_add (GST_BIN (pipeline), offerer);
   connect_sink_async (offerer, videotestsrc_offerer, video_enc_offerer, NULL,
-      pipeline, "sink_video");
+      pipeline, SINK_VIDEO_STREAM);
 
   gst_bin_add (GST_BIN (pipeline), answerer);
   connect_sink_async (answerer, videotestsrc_answerer, video_enc_answerer, NULL,
-      pipeline, "sink_video");
+      pipeline, SINK_VIDEO_STREAM);
 
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
@@ -749,11 +753,11 @@ test_audio_sendrecv (const gchar * audio_enc_name,
   /* Add elements */
   gst_bin_add (GST_BIN (pipeline), offerer);
   connect_sink_async (offerer, audiotestsrc_offerer, audio_enc_offerer,
-      capsfilter_offerer, pipeline, "sink_audio");
+      capsfilter_offerer, pipeline, SINK_AUDIO_STREAM);
 
   gst_bin_add (GST_BIN (pipeline), answerer);
   connect_sink_async (answerer, audiotestsrc_answerer, audio_enc_answerer,
-      capsfilter_answerer, pipeline, "sink_audio");
+      capsfilter_answerer, pipeline, SINK_AUDIO_STREAM);
 
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
@@ -955,7 +959,7 @@ test_audio_video_sendonly_recvonly (const gchar * audio_enc_name,
       G_CALLBACK (sendrecv_fakesink_hand_off), hod_video);
 
   g_object_set (G_OBJECT (audiotestsrc), "is-live", TRUE, NULL);
-  g_object_set (G_OBJECT (audiotestsrc), "is-live", TRUE, NULL);
+  g_object_set (G_OBJECT (videotestsrc), "is-live", TRUE, NULL);
 
   caps = gst_caps_new_simple ("audio/x-raw", "rate", G_TYPE_INT, 8000, NULL);
   g_object_set (capsfilter, "caps", caps, NULL);
@@ -964,9 +968,9 @@ test_audio_video_sendonly_recvonly (const gchar * audio_enc_name,
   /* Add elements */
   gst_bin_add (GST_BIN (pipeline), sender);
   connect_sink_async (sender, audiotestsrc, audio_enc, capsfilter, pipeline,
-      "sink_audio");
+      SINK_AUDIO_STREAM);
   connect_sink_async (sender, videotestsrc, video_enc, NULL, pipeline,
-      "sink_video");
+      SINK_VIDEO_STREAM);
 
   gst_bin_add (GST_BIN (pipeline), receiver);
 
@@ -1172,15 +1176,15 @@ test_audio_video_sendrecv (const gchar * audio_enc_name,
   /* Add elements */
   gst_bin_add (GST_BIN (pipeline), offerer);
   connect_sink_async (offerer, audiotestsrc_offerer, audio_enc_offerer,
-      capsfilter_offerer, pipeline, "sink_audio");
+      capsfilter_offerer, pipeline, SINK_AUDIO_STREAM);
   connect_sink_async (offerer, videotestsrc_offerer, video_enc_offerer, NULL,
-      pipeline, "sink_video");
+      pipeline, SINK_VIDEO_STREAM);
 
   gst_bin_add (GST_BIN (pipeline), answerer);
   connect_sink_async (answerer, audiotestsrc_answerer, audio_enc_answerer,
-      capsfilter_answerer, pipeline, "sink_audio");
+      capsfilter_answerer, pipeline, SINK_AUDIO_STREAM);
   connect_sink_async (answerer, videotestsrc_answerer, video_enc_answerer, NULL,
-      pipeline, "sink_video");
+      pipeline, SINK_VIDEO_STREAM);
 
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
@@ -1347,11 +1351,11 @@ test_offerer_audio_video_answerer_video_sendrecv (const gchar * audio_enc_name,
   /* Add elements */
   gst_bin_add (GST_BIN (pipeline), offerer);
   connect_sink_async (offerer, videotestsrc_offerer, video_enc_offerer, NULL,
-      pipeline, "sink_video");
+      pipeline, SINK_VIDEO_STREAM);
 
   gst_bin_add (GST_BIN (pipeline), answerer);
   connect_sink_async (answerer, videotestsrc_answerer, video_enc_answerer, NULL,
-      pipeline, "sink_video");
+      pipeline, SINK_VIDEO_STREAM);
 
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
@@ -1423,28 +1427,7 @@ test_offerer_audio_video_answerer_video_sendrecv (const gchar * audio_enc_name,
   g_free (answerer_sess_id);
 }
 
-#ifdef ENABLE_DEBUGGING_TESTS
-
 #define TEST_MESSAGE "Hello world!"
-
-static gboolean
-print_timedout_pipeline (gpointer data)
-{
-  GstElement *pipeline = data;
-  gchar *pipeline_name;
-  gchar *name;
-
-  pipeline_name = gst_element_get_name (pipeline);
-  name = g_strdup_printf ("%s_timedout", pipeline_name);
-
-  GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS (GST_BIN (pipeline),
-      GST_DEBUG_GRAPH_SHOW_ALL, name);
-
-  g_free (name);
-  g_free (pipeline_name);
-
-  return FALSE;
-}
 
 static void
 feed_data_channel (GstElement * appsrc, guint unused_size, gpointer data)
@@ -1457,8 +1440,7 @@ feed_data_channel (GstElement * appsrc, guint unused_size, gpointer data)
   buff = gst_buffer_new_wrapped (msg, strlen (msg));
 
   g_signal_emit_by_name (appsrc, "push-buffer", buff, &ret);
-
-  fail_if (ret != GST_FLOW_OK);
+  gst_buffer_unref (buff);
 }
 
 static void
@@ -1482,6 +1464,7 @@ webrtc_sender_pad_added (GstElement * element, GstPad * new_pad,
 
   srcpad = gst_element_get_static_pad (appsrc, "src");
   fail_if (gst_pad_link (srcpad, new_pad) != GST_PAD_LINK_OK);
+  g_object_unref (srcpad);
 
   gst_element_sync_state_with_parent (appsrc);
 }
@@ -1545,8 +1528,8 @@ webrtc_receiver_pad_added (GstElement * element, GstPad * new_pad,
 }
 
 static void
-data_session_established_cb (GstElement * self, gboolean connected,
-    gpointer data)
+data_session_established_cb (GstElement * self, const gchar * sess_id,
+    gboolean connected, gpointer data)
 {
   GST_DEBUG_OBJECT (self, "Data session %s",
       (connected) ? "established" : "finished");
@@ -1554,7 +1537,7 @@ data_session_established_cb (GstElement * self, gboolean connected,
   if (connected) {
     gint stream_id;
 
-    g_signal_emit_by_name (self, "create-data-channel", TRUE, -1, -1,
+    g_signal_emit_by_name (self, "create-data-channel", sess_id, TRUE, -1, -1,
         "TestChannel", "webrtc-datachannel", &stream_id);
 
     fail_if (stream_id < 0);
@@ -1621,7 +1604,7 @@ test_data_channels (gboolean bundle)
 
   g_object_set (sender, "bundle", bundle, "num-audio-medias", 0,
       "num-video-medias", 0, NULL);
-  g_object_set (receiver, "num-audio-medias", "num-video-medias", 0, NULL);
+  g_object_set (receiver, "num-audio-medias", 0, "num-video-medias", 0, NULL);
 
   g_signal_connect (sender, "pad-added", G_CALLBACK (webrtc_sender_pad_added),
       pipeline);
@@ -1632,8 +1615,8 @@ test_data_channels (gboolean bundle)
   g_signal_connect (receiver, "pad-added",
       G_CALLBACK (webrtc_receiver_pad_added), &tmp);
 
-  g_signal_emit_by_name (receiver, "request-new-srcpad",
-      KMS_ELEMENT_PAD_TYPE_DATA, NULL, &padname);
+  g_signal_emit_by_name (receiver, "request-new-pad",
+      KMS_ELEMENT_PAD_TYPE_DATA, NULL, GST_PAD_SRC, &padname);
   fail_if (padname == NULL);
 
   GST_DEBUG ("Requested pad name %s", padname);
@@ -1704,11 +1687,10 @@ test_data_channels (gboolean bundle)
   g_signal_emit_by_name (receiver, "gather-candidates", receiver_sess_id, &ret);
   fail_unless (ret);
 
-  g_timeout_add_seconds (4, print_timedout_pipeline, pipeline);
   g_main_loop_run (loop);
 
   GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS (GST_BIN (pipeline),
-      GST_DEBUG_GRAPH_SHOW_ALL, "test_sendonly_end");
+      GST_DEBUG_GRAPH_SHOW_ALL, "test_data_channels_end");
 
   GST_WARNING ("Finishing test");
 
@@ -1732,8 +1714,8 @@ GST_START_TEST (test_webrtc_data_channel)
   test_data_channels (FALSE);
 }
 
-GST_END_TEST
-#endif
+GST_END_TEST;
+
 /* Video tests */
 static GstStaticCaps vp8_expected_caps = GST_STATIC_CAPS ("video/x-vp8");
 
@@ -1944,10 +1926,15 @@ on_ice_candidate_range (GstElement * self, gchar * sess_id,
 {
   guint port = kms_ice_candidate_get_port (candidate);
 
-  fail_if (port > data->max_port);
-  fail_if (port < data->min_port);
   GST_DEBUG ("Candidate: %s", kms_ice_candidate_get_candidate (candidate));
   GST_DEBUG ("Port: %u", kms_ice_candidate_get_port (candidate));
+
+  // Acording to https://tools.ietf.org/html/rfc6544#section-4.5
+  // port == 9 should be discarded
+  if (port != 9) {
+    fail_if (port > data->max_port);
+    fail_if (port < data->min_port);
+  }
 }
 
 GST_START_TEST (test_port_range)
@@ -2067,6 +2054,101 @@ GST_START_TEST (test_not_enough_ports)
 }
 
 GST_END_TEST;
+
+static void
+on_ice_candidate_check_mid (GstElement * self, gchar * sess_id,
+    KmsIceCandidate * candidate, const gchar * expected_mid)
+{
+  const gchar *mid;
+
+  mid = kms_ice_candidate_get_sdp_mid (candidate);
+  fail_unless (g_strcmp0 (mid, expected_mid) == 0);
+}
+
+GST_START_TEST (process_mid_no_bundle_offer)
+{
+  GArray *audio_codecs_array, *video_codecs_array;
+  gchar *audio_codecs[] = { "opus/48000/1", NULL };
+  gchar *video_codecs[] = { "VP8/90000", NULL };
+  GstElement *webrtcendpoint =
+      gst_element_factory_make ("webrtcendpoint", NULL);
+  gchar *sess_id;
+  GstSDPMessage *offer = NULL, *answer = NULL;
+  gchar *aux = NULL;
+  const GstSDPMedia *media;
+  const gchar *mid;
+  gboolean ret;
+
+  static const gchar *offer_str = "v=0\r\n"
+      "o=mozilla...THIS_IS_SDPARTA-43.0 4115481872190049086 0 IN IP4 0.0.0.0\r\n"
+      "s=-\r\n"
+      "t=0 0\r\n"
+      "a=fingerprint:sha-256 34:05:1B:DC:3E:50:C7:45:15:D4:B7:42:31:1C:D9:11:5B:4D:61:CF:DB:47:B7:EC:E0:76:8E:E7:3D:EB:72:92\r\n"
+      "a=ice-options:trickle\r\n"
+      "a=msid-semantic:WMS *\r\n"
+      "m=video 9 UDP/TLS/RTP/SAVPF 120\r\n"
+      "c=IN IP4 0.0.0.0\r\n"
+      "a=sendrecv\r\n"
+      "a=ice-pwd:ba52db4f140d7f0272f0b5329ef95aa2\r\n"
+      "a=ice-ufrag:66d7677a\r\n"
+      "a=mid:sdparta_0\r\n"
+      "a=msid:{4ab114f1-f994-456c-ba62-272b79006b5d} {a45061ff-7fb6-4208-930c-4c637b839815}\r\n"
+      "a=rtcp-fb:120 nack\r\n"
+      "a=rtcp-fb:120 nack pli\r\n"
+      "a=rtcp-fb:120 ccm fir\r\n"
+      "a=rtcp-mux\r\n"
+      "a=rtpmap:120 VP8/90000\r\n"
+      "a=setup:actpass\r\n"
+      "a=ssrc:1841010112 cname:{9e639331-ad7e-4a2e-9a26-9623e3e68ea2}\r\n";
+
+  audio_codecs_array = create_codecs_array (audio_codecs);
+  video_codecs_array = create_codecs_array (video_codecs);
+
+  g_object_set (webrtcendpoint, "num-audio-medias", 1, "audio-codecs",
+      g_array_ref (audio_codecs_array), "num-video-medias", 1, "video-codecs",
+      g_array_ref (video_codecs_array), NULL);
+
+  g_array_unref (audio_codecs_array);
+  g_array_unref (video_codecs_array);
+
+  g_signal_connect (G_OBJECT (webrtcendpoint), "on-ice-candidate",
+      G_CALLBACK (on_ice_candidate_check_mid), "sdparta_0");
+
+  fail_unless (gst_sdp_message_new (&offer) == GST_SDP_OK);
+  fail_unless (gst_sdp_message_parse_buffer ((const guint8 *)
+          offer_str, -1, offer) == GST_SDP_OK);
+
+  GST_DEBUG ("Offer:\n%s", (aux = gst_sdp_message_as_text (offer)));
+  g_free (aux);
+  aux = NULL;
+
+  g_signal_emit_by_name (webrtcendpoint, "create-session", &sess_id);
+  GST_DEBUG_OBJECT (webrtcendpoint, "Created session with id '%s'", sess_id);
+  g_signal_emit_by_name (webrtcendpoint, "process-offer", sess_id, offer,
+      &answer);
+  fail_unless (answer != NULL);
+  GST_DEBUG ("Answer:\n%s", (aux = gst_sdp_message_as_text (answer)));
+  g_free (aux);
+  aux = NULL;
+
+  fail_if (gst_sdp_message_get_attribute_val (answer, "group") != NULL);
+
+  media = gst_sdp_message_get_media ((const GstSDPMessage *) answer, 0);
+  mid = gst_sdp_media_get_attribute_val (media, "mid");
+  fail_if (g_strcmp0 (mid, "sdparta_0") != 0);
+
+  gst_sdp_message_free (offer);
+  gst_sdp_message_free (answer);
+
+  g_signal_emit_by_name (webrtcendpoint, "gather-candidates", sess_id, &ret);
+  fail_unless (ret);
+
+  g_object_unref (webrtcendpoint);
+  g_free (sess_id);
+}
+
+GST_END_TEST;
+
 /*
  * End of test cases
  */
@@ -2093,9 +2175,9 @@ webrtcendpoint_test_suite (void)
   tcase_add_test (tc_chain, test_port_range);
   tcase_add_test (tc_chain, test_not_enough_ports);
 
-#ifdef ENABLE_DEBUGGING_TESTS
   tcase_add_test (tc_chain, test_webrtc_data_channel);
-#endif
+
+  tcase_add_test (tc_chain, process_mid_no_bundle_offer);
 
   return s;
 }
