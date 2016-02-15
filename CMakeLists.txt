@@ -1,23 +1,79 @@
-cmake_minimum_required (VERSION 2.8)
+cmake_minimum_required(VERSION 2.8)
+
+project ("kms-elements")
+
+message ("If KurentoHelpers is not found, then it is necessary to install
+          kms-cmake-utils package from the kurento repository")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
+find_package(KurentoHelpers REQUIRED)
 
+include (KurentoGitHelpers)
+message ("If CodeGenerator is not found, then it is necessary to install
+          kms-core package from the kurento repository")
 include (CodeGenerator)
 
-add_subdirectory(implementation/HttpServer)
+get_values_from_model(PREFIX VALUE MODELS ${CMAKE_SOURCE_DIR}/src/server/interface KEYS version)
 
-generate_code (
-  MODELS ${CMAKE_CURRENT_SOURCE_DIR}/interface
-  SERVER_IMPL_LIB_EXTRA_INCLUDE_DIRS
-      ${CMAKE_CURRENT_SOURCE_DIR}/../gst-plugins/webrtcendpoint
-      ${CMAKE_CURRENT_SOURCE_DIR}/../gst-plugins
-      ${KmsGstCommons_INCLUDE_DIRS}
-      ${CMAKE_CURRENT_SOURCE_DIR}/implementation
-      ${nice_INCLUDE_DIRS}
-  SERVER_IMPL_LIB_EXTRA_LIBRARIES
-      kmshttpep
-      kmswebrtcendpointlib
-      ${nice_LIBRARIES}
-      ${KmsGstCommons_LIBRARIES}
-  SERVER_STUB_DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/implementation/objects
-)
+get_git_version (PROJECT_VERSION ${VALUE_VERSION})
+install_git_hook (pre-commit ${CMAKE_CURRENT_SOURCE_DIR}/hooks/pre-commit.hook)
+
+include (GenericFind)
+
+generic_find (LIBNAME Boost REQUIRED COMPONENTS unit_test_framework)
+
+set (GST_REQUIRED ^1.5.0)
+set (GLIB_REQUIRED ^2.38)
+set (SOUP_REQUIRED ^2.40)
+set (NICE_REQUIRED ^0.1.7)
+set (GLIBMM_REQUIRED ^2.37)
+set (OPENCV_REQUIRED ^2.0.0)
+
+#gst-plugins dependencies
+generic_find (LIBNAME gstreamer-1.5 VERSION ${GST_REQUIRED} REQUIRED)
+generic_find (LIBNAME gstreamer-base-1.5 VERSION ${GST_REQUIRED} REQUIRED)
+generic_find (LIBNAME gstreamer-video-1.5 VERSION ${GST_REQUIRED} REQUIRED)
+generic_find (LIBNAME gstreamer-app-1.5 VERSION ${GST_REQUIRED} REQUIRED)
+generic_find (LIBNAME gstreamer-check-1.5 VERSION ${GST_REQUIRED} REQUIRED)
+generic_find (LIBNAME gstreamer-sdp-1.5 VERSION ${GST_REQUIRED} REQUIRED)
+generic_find (LIBNAME gstreamer-rtp-1.5 VERSION ${GST_REQUIRED} REQUIRED)
+generic_find (LIBNAME gstreamer-pbutils-1.5 VERSION ${GST_REQUIRED} REQUIRED)
+generic_find (LIBNAME gstreamer-sctp-1.5 REQUIRED)
+generic_find (LIBNAME glibmm-2.4 VERSION ${GLIBMM_REQUIRED} REQUIRED)
+generic_find (LIBNAME KmsGstCommons REQUIRED)
+generic_find (LIBNAME libsoup-2.4 VERSION ${SOUP_REQUIRED} REQUIRED)
+generic_find (LIBNAME nice VERSION ${NICE_REQUIRED} REQUIRED)
+generic_find (LIBNAME gio-2.0 VERSION ${GLIB_REQUIRED} REQUIRED)
+generic_find (LIBNAME uuid REQUIRED)
+generic_find (LIBNAME json-glib-1.0 REQUIRED)
+generic_find (LIBNAME opencv VERSION ${OPENCV_REQUIRED} REQUIRED)
+generic_find (LIBNAME pango REQUIRED)
+generic_find (LIBNAME cairo REQUIRED)
+
+set (VERSION ${PROJECT_VERSION})
+set (PACKAGE ${PROJECT_NAME})
+set (GETTEXT_PACKAGE "kms-elements")
+set (MANUAL_CHECK OFF CACHE BOOL "Tests will generate files")
+set (ENABLE_DEBUGGING_TESTS OFF CACHE BOOL "Enable test that are not yet stable")
+
+include(GNUInstallDirs)
+
+set (CMAKE_INSTALL_GST_PLUGINS_DIR ${CMAKE_INSTALL_LIBDIR}/gstreamer-1.5)
+set (KURENTO_MODULES_SO_DIR ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/${KURENTO_MODULES_DIR_INSTALL_PREFIX})
+
+set (BINARY_LOCATION "http://files.kurento.org/" CACHE STRING "Local binary directory expressed as an URI ( http:// or file:/// )")
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config.h)
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2 -DHAVE_CONFIG_H -Werror -Wall -Werror=declaration-after-statement -Werror=strict-aliasing")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O2 -DHAVE_CONFIG_H -Wall -Werror -std=c++11")
+
+enable_testing()
+
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+message(STATUS "Compiling : ${PROJECT_NAME}-${PROJECT_VERSION}")
+
+add_subdirectory (src)
+add_subdirectory(tests)
