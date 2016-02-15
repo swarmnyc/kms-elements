@@ -1,0 +1,65 @@
+{
+  "remoteClasses": [
+    {
+      "name": "StyleComposite",
+      "extends": "Hub",
+      "doc": "A :rom:cls:`Hub` that mixes the :rom:attr:`MediaType.AUDIO` stream of its connected sources and constructs a grid with the :rom:attr:`MediaType.VIDEO` streams of its connected sources into its sink",
+      "constructor":
+        {
+          "doc": "Create for the given pipeline",
+          "params": [
+            {
+              "name": "mediaPipeline",
+              "doc": "the :rom:cls:`MediaPipeline` to which the dispatcher belongs",
+              "type": "MediaPipeline"
+            }
+          ]
+        }
+      ,"methods": [
+        {
+          "name": "setStyle",
+          "doc": "Sets the style of the composite video, e.g. message, name, frame position, etc.",
+          "params": [
+            {
+              "name": "style",
+              "doc": "The style description, like:",
+              "type": "String"
+            }
+          ]
+        }
+        ,{
+          "name": "getStyle",
+          "doc": "Gets the style of the composite video, e.g. message, name, frame position, etc.",
+          "params": [],
+          "return": {
+            "doc": "The style descrition, like:",
+            "type": "String"
+          }
+        }
+        ,{
+          "name": "showView",
+          "doc": "show the view by specified id, especially when the view's video reconneted.",
+          "params": [
+            {
+              "name": "id",
+              "doc": "the view's id, equals to it's maxOuputBitrate.",
+              "type": "int"
+            }
+          ]
+        }
+        ,{
+          "name": "hideView",
+          "doc": "hide the view by specified id, especially when the view's video disconnected.",
+          "params": [
+            {
+              "name": "id",
+              "doc": "the view's id, equals to it's maxOuputBitrate.",
+              "type": "int"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
