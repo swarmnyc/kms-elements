@@ -15,12 +15,9 @@
 
 #include "kmssrtpconnection.h"
 #include "kmssocketutils.h"
-#include <string.h>
 
 #define GST_CAT_DEFAULT kmsrtpconnection
 GST_DEBUG_CATEGORY_STATIC (GST_CAT_DEFAULT);
-
-#define MAX_RETRIES 4
 
 #define GST_DEFAULT_NAME "kmsrtpconnection"
 #define kms_srtp_connection_parent_class parent_class
@@ -42,6 +39,16 @@ enum
   PROP_MIN_PORT,
   PROP_MAX_PORT
 };
+
+enum
+{
+  /* signals */
+  SIGNAL_KEY_SOFT_LIMIT,
+
+  LAST_SIGNAL
+};
+
+static guint obj_signals[LAST_SIGNAL] = { 0 };
 
 struct _KmsSrtpConnectionPrivate
 {
@@ -117,8 +124,8 @@ kms_srtp_connection_set_remote_info (KmsRtpBaseConnection * base_conn,
   KmsSrtpConnection *self = KMS_SRTP_CONNECTION (base_conn);
   KmsSrtpConnectionPrivate *priv = self->priv;
 
-  g_object_set (priv->rtp_udpsink, "host", host, "port", rtp_port, NULL);
-  g_object_set (priv->rtcp_udpsink, "host", host, "port", rtcp_port, NULL);
+  g_signal_emit_by_name (priv->rtp_udpsink, "add", host, rtp_port, NULL);
+  g_signal_emit_by_name (priv->rtcp_udpsink, "add", host, rtcp_port, NULL);
 }
 
 static void
@@ -360,25 +367,39 @@ end:
   return caps;
 }
 
+static GstCaps *
+kms_srtp_connection_soft_key_limit_cb (GstElement * srtpdec, guint ssrc,
+    KmsSrtpConnection * conn)
+{
+  g_signal_emit (conn, obj_signals[SIGNAL_KEY_SOFT_LIMIT], 0);
+
+  /* FIXME: Key is about to expire, a new one should be provided */
+  /* when renegotiation is supported */
+
+  return NULL;
+}
+
 KmsSrtpConnection *
-kms_srtp_connection_new (guint16 min_port, guint16 max_port)
+kms_srtp_connection_new (guint16 min_port, guint16 max_port, gboolean use_ipv6)
 {
   GObject *obj;
   KmsSrtpConnection *conn;
   KmsSrtpConnectionPrivate *priv;
-  gint retries = 0;
+  GSocketFamily socket_family;
 
   obj = g_object_new (KMS_TYPE_SRTP_CONNECTION, NULL);
   conn = KMS_SRTP_CONNECTION (obj);
   priv = conn->priv;
 
-  while (!kms_rtp_connection_get_rtp_rtcp_sockets
-      (&priv->rtp_socket, &priv->rtcp_socket, min_port, max_port)
-      && retries++ < MAX_RETRIES) {
-    GST_WARNING_OBJECT (obj, "Getting ports failed, retring");
+  if (use_ipv6) {
+    socket_family = G_SOCKET_FAMILY_IPV6;
+  } else {
+    socket_family = G_SOCKET_FAMILY_IPV4;
   }
 
-  if (priv->rtp_socket == NULL) {
+  if (!kms_rtp_connection_get_rtp_rtcp_sockets
+      (&priv->rtp_socket, &priv->rtcp_socket, min_port, max_port,
+          socket_family)) {
     GST_ERROR_OBJECT (obj, "Cannot get ports");
     g_object_unref (obj);
     return NULL;
@@ -393,18 +414,22 @@ kms_srtp_connection_new (guint16 min_port, guint16 max_port)
       G_CALLBACK (kms_srtp_connection_new_pad_cb), obj);
   g_signal_connect (priv->srtpdec, "request-key",
       G_CALLBACK (kms_srtp_connection_request_remote_key_cb), obj);
+  g_signal_connect (priv->srtpdec, "soft-limit",
+      G_CALLBACK (kms_srtp_connection_soft_key_limit_cb), obj);
 
-  priv->rtp_udpsink = gst_element_factory_make ("udpsink", NULL);
+  priv->rtp_udpsink = gst_element_factory_make ("multiudpsink", NULL);
   priv->rtp_udpsrc = gst_element_factory_make ("udpsrc", NULL);
   g_object_set (priv->rtp_udpsink, "socket", priv->rtp_socket,
       "sync", FALSE, "async", FALSE, NULL);
-  g_object_set (priv->rtp_udpsrc, "socket", priv->rtp_socket, NULL);
+  g_object_set (priv->rtp_udpsrc, "socket", priv->rtp_socket, "auto-multicast",
+      FALSE, NULL);
 
-  priv->rtcp_udpsink = gst_element_factory_make ("udpsink", NULL);
+  priv->rtcp_udpsink = gst_element_factory_make ("multiudpsink", NULL);
   priv->rtcp_udpsrc = gst_element_factory_make ("udpsrc", NULL);
   g_object_set (priv->rtcp_udpsink, "socket", priv->rtcp_socket,
       "sync", FALSE, "async", FALSE, NULL);
-  g_object_set (priv->rtcp_udpsrc, "socket", priv->rtcp_socket, NULL);
+  g_object_set (priv->rtcp_udpsrc, "socket", priv->rtcp_socket,
+      "auto-multicast", FALSE, NULL);
 
   kms_i_rtp_connection_connected_signal (KMS_I_RTP_CONNECTION (conn));
 
@@ -473,6 +498,13 @@ kms_srtp_connection_class_init (KmsSrtpConnectionClass * klass)
   g_object_class_override_property (gobject_class, PROP_IS_CLIENT, "is-client");
   g_object_class_override_property (gobject_class, PROP_MAX_PORT, "max-port");
   g_object_class_override_property (gobject_class, PROP_MIN_PORT, "min-port");
+
+  obj_signals[SIGNAL_KEY_SOFT_LIMIT] =
+      g_signal_new ("key-soft-limit",
+      G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST,
+      G_STRUCT_OFFSET (KmsSrtpConnectionClass, key_soft_limit), NULL, NULL,
+      g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
 }
 
 void

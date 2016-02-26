@@ -19,6 +19,7 @@
 #include <commons/kmsutils.h>
 
 #include "webrtcendpoint/kmswebrtcdatachannelstate.h"
+#include <boost/algorithm/string.hpp>
 
 #define GST_CAT_DEFAULT kurento_web_rtc_endpoint_impl
 GST_DEBUG_CATEGORY_STATIC (GST_CAT_DEFAULT);
@@ -58,7 +59,8 @@ remove_not_supported_codecs_from_array (GstElement *element, GArray *codecs)
 
     for (std::vector<std::string>::iterator it = supported_codecs.begin();
          it != supported_codecs.end(); ++it) {
-      if (g_str_has_prefix (codec_name, (*it).c_str() ) ) {
+
+      if (boost::istarts_with (codec_name, (*it) ) ) {
         supported = TRUE;
         break;
       }
@@ -176,7 +178,7 @@ void WebRtcEndpointImpl::onIceComponentStateChanged (gchar *sessId,
 }
 
 void
-WebRtcEndpointImpl::onDataChannelOpened (guint stream_id)
+WebRtcEndpointImpl::onDataChannelOpened (gchar *sessId, guint stream_id)
 {
   try {
     OnDataChannelOpened event (shared_from_this(), OnDataChannelOpened::getName(),
@@ -187,7 +189,7 @@ WebRtcEndpointImpl::onDataChannelOpened (guint stream_id)
 }
 
 void
-WebRtcEndpointImpl::onDataChannelClosed (guint stream_id)
+WebRtcEndpointImpl::onDataChannelClosed (gchar *sessId, guint stream_id)
 {
   try {
     OnDataChannelClosed event (shared_from_this(), OnDataChannelClosed::getName(),
@@ -228,17 +230,17 @@ void WebRtcEndpointImpl::postConstructor ()
 
   handlerOnDataChannelOpened = register_signal_handler (G_OBJECT (element),
                                "data-channel-opened",
-                               std::function <void (GstElement *, guint) >
+                               std::function <void (GstElement *, gchar *, guint) >
                                (std::bind (&WebRtcEndpointImpl::onDataChannelOpened, this,
-                                   std::placeholders::_2) ),
+                                   std::placeholders::_2, std::placeholders::_3) ),
                                std::dynamic_pointer_cast<WebRtcEndpointImpl>
                                (shared_from_this() ) );
 
   handlerOnDataChannelClosed = register_signal_handler (G_OBJECT (element),
                                "data-channel-closed",
-                               std::function <void (GstElement *, guint) >
+                               std::function <void (GstElement *, gchar *, guint) >
                                (std::bind (&WebRtcEndpointImpl::onDataChannelClosed, this,
-                                   std::placeholders::_2) ),
+                                   std::placeholders::_2, std::placeholders::_3) ),
                                std::dynamic_pointer_cast<WebRtcEndpointImpl>
                                (shared_from_this() ) );
 }
@@ -410,7 +412,7 @@ WebRtcEndpointImpl::addIceCandidate (std::shared_ptr<IceCandidate> candidate)
   guint8 sdp_m_line_index = candidate->getSdpMLineIndex ();
   KmsIceCandidate *cand = kms_ice_candidate_new (cand_str.c_str(),
                           mid_str.c_str(),
-                          sdp_m_line_index);
+                          sdp_m_line_index, NULL);
 
   g_signal_emit_by_name (element, "add-ice-candidate", this->sessId.c_str (),
                          cand, &ret);
@@ -461,7 +463,8 @@ WebRtcEndpointImpl::createDataChannel (const std::string &label, bool ordered,
   gint lifeTime, retransmits, stream_id;
   gboolean supported;
 
-  g_object_get (element, "data-channel-supported", &supported, NULL);
+  g_signal_emit_by_name (element, "get-data-channel-supported",
+                         this->sessId.c_str (), &supported);
 
   if (!supported) {
     throw KurentoException (MEDIA_OBJECT_OPERATION_NOT_SUPPORTED,
@@ -500,7 +503,8 @@ WebRtcEndpointImpl::createDataChannel (const std::string &label, bool ordered,
   }
 
   /* Create the data channel */
-  g_signal_emit_by_name (element, "create-data-channel", ordered, lifeTime,
+  g_signal_emit_by_name (element, "create-data-channel", this->sessId.c_str (),
+                         ordered, lifeTime,
                          retransmits, label.c_str(), protocol.c_str(),
                          &stream_id);
 
@@ -516,7 +520,8 @@ WebRtcEndpointImpl::closeDataChannel (int channelId)
 {
   gboolean supported;
 
-  g_object_get (element, "data-channel-supported", &supported, NULL);
+  g_signal_emit_by_name (element, "get-data-channel-supported",
+                         this->sessId.c_str (), &supported);
 
   if (!supported) {
     throw KurentoException (MEDIA_OBJECT_OPERATION_NOT_SUPPORTED,
@@ -524,7 +529,8 @@ WebRtcEndpointImpl::closeDataChannel (int channelId)
   }
 
   /* Destroy the data channel */
-  g_signal_emit_by_name (element, "destroy-data-channel", channelId);
+  g_signal_emit_by_name (element, "destroy-data-channel", this->sessId.c_str (),
+                         channelId);
 }
 
 static std::shared_ptr<RTCDataChannelState>

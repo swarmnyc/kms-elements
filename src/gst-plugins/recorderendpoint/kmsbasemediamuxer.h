@@ -81,7 +81,6 @@ struct _KmsBaseMediaMuxerClass
 
   /* <protected> */
   GstElement * (*create_sink) (KmsBaseMediaMuxer *obj, const gchar *uri);
-  void (*emit_on_eos) (KmsBaseMediaMuxer *obj);
   void (*emit_on_sink_added) (KmsBaseMediaMuxer *obj, GstElement *sink);
 
   /* <public> */
@@ -93,9 +92,9 @@ struct _KmsBaseMediaMuxerClass
 
   /* <virtual> */
   GstElement * (*add_src) (KmsBaseMediaMuxer *obj, KmsMediaType type, const gchar *id);
+  gboolean (*remove_src) (KmsBaseMediaMuxer *obj, const gchar *id);
 
   /* <signals> */
-  void (*on_eos) (KmsBaseMediaMuxer *obj);
   void (*on_sink_added) (KmsBaseMediaMuxer *obj, GstElement *sink);
 };
 
@@ -108,6 +107,7 @@ GstClock * kms_base_media_muxer_get_clock (KmsBaseMediaMuxer *obj);
 GstBus * kms_base_media_muxer_get_bus (KmsBaseMediaMuxer *obj);
 void kms_base_media_muxer_dot_file (KmsBaseMediaMuxer *obj);
 GstElement * kms_base_media_muxer_add_src (KmsBaseMediaMuxer *obj, KmsMediaType type, const gchar *id);
+gboolean kms_base_media_muxer_remove_src (KmsBaseMediaMuxer *obj, const gchar *id);
 
 G_END_DECLS
 

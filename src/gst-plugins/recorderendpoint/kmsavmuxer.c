@@ -50,7 +50,6 @@ struct _KmsAVMuxerPrivate
   GstElement *sink;
   GstClockTime lastVideoPts;
   GstClockTime lastAudioPts;
-  GstTaskPool *tasks;
 
   gboolean sink_signaled;
 };
@@ -65,23 +64,6 @@ G_DEFINE_TYPE_WITH_CODE (KmsAVMuxer, kms_av_muxer,
     KMS_TYPE_BASE_MEDIA_MUXER,
     GST_DEBUG_CATEGORY_INIT (kms_av_muxer_debug_category, OBJECT_NAME,
         0, "debug category for muxing pipeline object"));
-
-static void
-destroy_ulong (gpointer data)
-{
-  g_slice_free (gulong, data);
-}
-
-static void
-kms_av_muxer_finalize (GObject * obj)
-{
-  KmsAVMuxer *self = KMS_AV_MUXER (obj);
-
-  gst_task_pool_cleanup (self->priv->tasks);
-  gst_object_unref (self->priv->tasks);
-
-  G_OBJECT_CLASS (parent_class)->finalize (obj);
-}
 
 GstStateChangeReturn
 kms_av_muxer_set_state (KmsBaseMediaMuxer * obj, GstState state)
@@ -132,18 +114,22 @@ kms_av_muxer_add_src (KmsBaseMediaMuxer * obj, KmsMediaType type,
   return appsrc;
 }
 
+static gboolean
+kms_av_muxer_remove_src (KmsBaseMediaMuxer * obj, const gchar * id)
+{
+  /* Nothing to remove */
+  return FALSE;
+}
+
 static void
 kms_av_muxer_class_init (KmsAVMuxerClass * klass)
 {
   KmsBaseMediaMuxerClass *basemediamuxerclass;
-  GObjectClass *objclass;
-
-  objclass = G_OBJECT_CLASS (klass);
-  objclass->finalize = kms_av_muxer_finalize;
 
   basemediamuxerclass = KMS_BASE_MEDIA_MUXER_CLASS (klass);
   basemediamuxerclass->set_state = kms_av_muxer_set_state;
   basemediamuxerclass->add_src = kms_av_muxer_add_src;
+  basemediamuxerclass->remove_src = kms_av_muxer_remove_src;
 
   g_type_class_add_private (klass, sizeof (KmsAVMuxerPrivate));
 }
@@ -151,20 +137,10 @@ kms_av_muxer_class_init (KmsAVMuxerClass * klass)
 static void
 kms_av_muxer_init (KmsAVMuxer * self)
 {
-  GError *err = NULL;
-
   self->priv = KMS_AV_MUXER_GET_PRIVATE (self);
 
   self->priv->lastVideoPts = G_GUINT64_CONSTANT (0);
   self->priv->lastAudioPts = G_GUINT64_CONSTANT (0);
-  self->priv->tasks = gst_task_pool_new ();
-
-  gst_task_pool_prepare (self->priv->tasks, &err);
-
-  if (G_UNLIKELY (err != NULL)) {
-    g_warning ("%s", err->message);
-    g_error_free (err);
-  }
 }
 
 static gboolean
@@ -283,61 +259,25 @@ kms_av_muxer_create_muxer (KmsAVMuxer * self)
       return gst_element_factory_make ("webmmux", NULL);
     case KMS_RECORDING_PROFILE_MP4:
     case KMS_RECORDING_PROFILE_MP4_VIDEO_ONLY:
-    case KMS_RECORDING_PROFILE_MP4_AUDIO_ONLY:
-      return gst_element_factory_make ("qtmux", NULL);
+    case KMS_RECORDING_PROFILE_MP4_AUDIO_ONLY:{
+      GstElement *mux = gst_element_factory_make ("qtmux", NULL);
+      GstElementFactory *file_sink_factory =
+          gst_element_factory_find ("filesink");
+      GstElementFactory *sink_factory =
+          gst_element_get_factory (self->priv->sink);
+
+      if ((gst_element_factory_get_element_type (sink_factory) !=
+              gst_element_factory_get_element_type (file_sink_factory))) {
+        g_object_set (mux, "faststart", TRUE, NULL);
+      }
+
+      g_object_unref (file_sink_factory);
+      return mux;
+    }
     default:
       GST_ERROR_OBJECT (self, "No valid recording profile set");
       return NULL;
   }
-}
-
-static void
-kms_av_muxer_emit_on_eos (KmsBaseMediaMuxer * obj)
-{
-  KMS_BASE_MEDIA_MUXER_GET_CLASS (obj)->emit_on_eos (obj);
-}
-
-static GstPadProbeReturn
-stop_notification_cb (GstPad * srcpad, GstPadProbeInfo * info,
-    gpointer user_data)
-{
-  KmsAVMuxer *self = KMS_AV_MUXER (user_data);
-  GError *err = NULL;
-
-  if (GST_EVENT_TYPE (GST_PAD_PROBE_INFO_DATA (info)) != GST_EVENT_EOS)
-    return GST_PAD_PROBE_OK;
-
-  /* Use diferent thread to emit the signal */
-  gst_task_pool_push (self->priv->tasks,
-      (GstTaskPoolFunction) kms_av_muxer_emit_on_eos, self, &err);
-
-  if (err != NULL) {
-    GST_ERROR_OBJECT (self, "%s", err->message);
-    g_error_free (err);
-  }
-
-  return GST_PAD_PROBE_OK;
-}
-
-static void
-kms_av_muxer_configure_EOS (KmsAVMuxer * self)
-{
-  gulong *probe_id;
-  GstPad *sinkpad;
-
-  sinkpad = gst_element_get_static_pad (self->priv->sink, "sink");
-  if (sinkpad == NULL) {
-    GST_WARNING ("No sink pad available for element %" GST_PTR_FORMAT,
-        self->priv->sink);
-    return;
-  }
-
-  probe_id = g_slice_new0 (gulong);
-  *probe_id = gst_pad_add_probe (sinkpad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
-      stop_notification_cb, self, NULL);
-  g_object_set_data_full (G_OBJECT (sinkpad), KEY_AV_MUXER_PAD_PROBE_ID,
-      probe_id, destroy_ulong);
-  g_object_unref (sinkpad);
 }
 
 static void
@@ -349,7 +289,6 @@ kms_av_muxer_prepare_pipeline (KmsAVMuxer * self)
   self->priv->sink =
       KMS_BASE_MEDIA_MUXER_GET_CLASS (self)->create_sink (KMS_BASE_MEDIA_MUXER
       (self), KMS_BASE_MEDIA_MUXER_GET_URI (self));
-  kms_av_muxer_configure_EOS (self);
 
   g_object_set (self->priv->videosrc, "format", 3 /* GST_FORMAT_TIME */ , NULL);
   g_object_set (self->priv->audiosrc, "format", 3 /* GST_FORMAT_TIME */ , NULL);

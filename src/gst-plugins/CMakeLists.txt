@@ -5,20 +5,18 @@ include(GLibHelpers)
 add_subdirectory(rtcpdemux)
 add_subdirectory(rtpendpoint)
 add_subdirectory(webrtcendpoint)
+add_subdirectory(recorderendpoint)
 
 set(KMS_ELEMENTS_SOURCES
   kmselements.c
   kmshttpendpoint.c
   kmshttppostendpoint.c
   kmsplayerendpoint.c
-  kmsrecorderendpoint.c
   kmsselectablemixer.c
   kmsdispatcher.c
   kmsdispatcheronetomany.c
   kmscompositemixer.c
   kmsalphablending.c
-  kmsbasemediamuxer.c
-  kmsavmuxer.c
   kmstextoverlay.c
   kmsstylecompositemixer.c
   kmsepisodeoverlay.c
@@ -29,14 +27,11 @@ set(KMS_ELEMENTS_HEADERS
   kmshttpendpointmethod.h
   kmshttppostendpoint.h
   kmsplayerendpoint.h
-  kmsrecorderendpoint.h
   kmsselectablemixer.h
   kmsdispatcher.h
   kmsdispatcheronetomany.h
   kmscompositemixer.h
   kmsalphablending.h
-  kmsbasemediamuxer.h
-  kmsavmuxer.h
   kmstextoverlay.h
   kmsstylecompositemixer.h
   kmsepisodeoverlay.h
@@ -52,7 +47,7 @@ add_glib_enumtypes(KMS_ELEMENTS_SOURCES KMS_ELEMENTS_HEADERS kms-elements-enumty
 
 add_library(${LIBRARY_NAME}plugins MODULE ${KMS_ELEMENTS_SOURCES} ${KMS_ELEMENTS_HEADERS})
 
-add_dependencies(${LIBRARY_NAME}plugins webrtcendpoint rtpendpoint)
+add_dependencies(${LIBRARY_NAME}plugins webrtcendpoint rtpendpoint recorderendpoint)
 
 include_directories(
   ${KmsGstCommons_INCLUDE_DIRS}

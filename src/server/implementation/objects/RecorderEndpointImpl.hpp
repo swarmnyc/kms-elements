@@ -43,6 +43,11 @@ protected:
   virtual void fillStatsReport (std::map <std::string, std::shared_ptr<Stats>>
                                 &report, const GstStructure *stats, double timestamp);
 private:
+  static bool support_ksr;
+
+  void collectEndpointStats (std::map <std::string, std::shared_ptr<Stats>>
+                             &statsReport, std::string id, const GstStructure *stats,
+                             double timestamp);
 
   class StaticConstructor
   {
@@ -51,7 +56,6 @@ private:
   };
 
   static StaticConstructor staticConstructor;
-
 };
 
 } /* kurento */

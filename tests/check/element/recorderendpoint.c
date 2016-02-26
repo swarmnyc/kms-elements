@@ -19,6 +19,12 @@
 
 #include <commons/kmsuriendpointstate.h>
 
+#define SINK_VIDEO_STREAM "sink_video_default"
+#define SINK_AUDIO_STREAM "sink_audio_default"
+
+#define KMS_ELEMENT_PAD_TYPE_AUDIO 1
+#define KMS_ELEMENT_PAD_TYPE_VIDEO 2
+
 gboolean set_state_start (gpointer *);
 gboolean set_state_pause (gpointer *);
 gboolean set_state_stop (gpointer *);
@@ -28,6 +34,13 @@ static guint number_of_transitions;
 static gboolean expected_warnings;
 static guint test_number;
 static guint state;
+
+typedef struct _RequestPadData
+{
+  gint n;
+  gint count;
+  gchar **pads;
+} RequestPadData;
 
 struct state_controller
 {
@@ -313,8 +326,8 @@ GST_START_TEST (check_states_pipeline)
   gst_element_link (timeoverlay, vencoder);
   gst_element_link (audiotestsrc, aencoder);
 
-  link_to_recorder (recorder, vencoder, pipeline, "sink_video");
-  link_to_recorder (recorder, aencoder, pipeline, "sink_audio");
+  link_to_recorder (recorder, vencoder, pipeline, SINK_VIDEO_STREAM);
+  link_to_recorder (recorder, aencoder, pipeline, SINK_AUDIO_STREAM);
 
   g_signal_connect (recorder, "state-changed", G_CALLBACK (state_changed_cb),
       loop);
@@ -379,8 +392,8 @@ GST_START_TEST (warning_pipeline)
   gst_element_link (timeoverlay, vencoder);
   gst_element_link (audiotestsrc, aencoder);
 
-  link_to_recorder (recorder, vencoder, pipeline, "sink_video");
-  link_to_recorder (recorder, aencoder, pipeline, "sink_audio");
+  link_to_recorder (recorder, vencoder, pipeline, SINK_VIDEO_STREAM);
+  link_to_recorder (recorder, aencoder, pipeline, SINK_AUDIO_STREAM);
 
   g_signal_connect (recorder, "state-changed", G_CALLBACK (state_changed_cb),
       loop);
@@ -467,8 +480,8 @@ GST_START_TEST (finite_video_test)
   gst_element_link (timeoverlay, vencoder);
   gst_element_link (audiotestsrc, aencoder);
 
-  link_to_recorder (recorder, vencoder, pipeline, "sink_video");
-  link_to_recorder (recorder, aencoder, pipeline, "sink_audio");
+  link_to_recorder (recorder, vencoder, pipeline, SINK_VIDEO_STREAM);
+  link_to_recorder (recorder, aencoder, pipeline, SINK_AUDIO_STREAM);
 
   g_signal_connect (recorder, "state-changed", G_CALLBACK (state_changed_cb2),
       loop);
@@ -559,7 +572,7 @@ GST_START_TEST (check_video_only)
   gst_element_link (videotestsrc, timeoverlay);
   gst_element_link (timeoverlay, vencoder);
 
-  link_to_recorder (recorder, vencoder, pipeline, "sink_video");
+  link_to_recorder (recorder, vencoder, pipeline, SINK_VIDEO_STREAM);
 
   g_signal_connect (recorder, "state-changed", G_CALLBACK (state_changed_cb3),
       loop);
@@ -621,7 +634,7 @@ GST_START_TEST (check_audio_only)
   gst_bin_add_many (GST_BIN (pipeline), audiotestsrc, encoder, recorder, NULL);
   gst_element_link (audiotestsrc, encoder);
 
-  link_to_recorder (recorder, encoder, pipeline, "sink_audio");
+  link_to_recorder (recorder, encoder, pipeline, SINK_AUDIO_STREAM);
 
   g_signal_connect (recorder, "state-changed", G_CALLBACK (state_changed_cb3),
       loop);
@@ -650,6 +663,128 @@ GST_START_TEST (check_audio_only)
   g_main_loop_unref (loop);
 }
 
+GST_END_TEST static gboolean
+check_support_for_ksr ()
+{
+  GstPlugin *plugin = NULL;
+  gboolean supported;
+
+  plugin = gst_plugin_load_by_name ("kmsrecorder");
+
+  supported = plugin != NULL;
+
+  g_clear_object (&plugin);
+
+  return supported;
+}
+
+static void
+state_changed_ksr (GstElement * recorder, KmsUriEndpointState newState,
+    gpointer loop)
+{
+  GST_DEBUG ("State changed %s.", state2string (newState));
+
+  if (newState == KMS_URI_ENDPOINT_STATE_STOP) {
+    g_idle_add (quit_main_loop_idle, loop);
+  }
+}
+
+static gboolean
+is_pad_requested (GstPad * pad, gchar ** pads, gint n)
+{
+  gboolean found = FALSE;
+  gchar *padname;
+  gint i;
+
+  padname = gst_pad_get_name (pad);
+
+  for (i = 0; i < n && !found; i++) {
+    found = g_strcmp0 (padname, pads[i]) == 0;
+  }
+
+  g_free (padname);
+
+  return found;
+}
+
+static void
+sink_pad_added (GstElement * element, GstPad * new_pad, gpointer user_data)
+{
+  RequestPadData *data = (RequestPadData *) user_data;
+
+  GST_INFO_OBJECT (element, "Added pad %" GST_PTR_FORMAT, new_pad);
+
+  if (!is_pad_requested (new_pad, data->pads, data->n)) {
+    return;
+  }
+
+  if (g_atomic_int_dec_and_test (&data->count)) {
+    GST_DEBUG_OBJECT (element, "All sink pads created");
+    g_idle_add (stop_recorder, NULL);
+  }
+}
+
+GST_START_TEST (check_ksm_sink_request)
+{
+  GstElement *pipeline;
+  guint bus_watch_id;
+  RequestPadData data;
+  GstBus *bus;
+  GMainLoop *loop = g_main_loop_new (NULL, FALSE);
+  guint i;
+
+  data.count = data.n = 4;
+  data.pads = g_slice_alloc0 (sizeof (guint8) * data.n);
+
+  pipeline = gst_pipeline_new (__FUNCTION__);
+  recorder = gst_element_factory_make ("recorderendpoint", NULL);
+
+  g_object_set (G_OBJECT (recorder), "uri",
+      "file:///tmp/output.ksr", "profile", 6 /* KMS_RECORDING_PROFILE_KSR */ ,
+      NULL);
+
+  g_signal_connect (recorder, "state-changed", G_CALLBACK (state_changed_ksr),
+      loop);
+  g_signal_connect (recorder, "pad-added", G_CALLBACK (sink_pad_added), &data);
+
+  bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
+  bus_watch_id = gst_bus_add_watch (bus, gst_bus_async_signal_func, NULL);
+  g_signal_connect (bus, "message", G_CALLBACK (bus_msg), pipeline);
+  g_object_unref (bus);
+
+  gst_bin_add (GST_BIN (pipeline), recorder);
+
+  /* request src pad using action */
+  for (i = 0; i < data.n; i++) {
+    gchar *id = g_strdup_printf ("tag_%u", i);
+
+    g_signal_emit_by_name (recorder, "request-new-pad",
+        KMS_ELEMENT_PAD_TYPE_VIDEO, id, GST_PAD_SINK, &data.pads[i]);
+    g_free (id);
+  }
+
+  g_object_set (G_OBJECT (recorder), "state", KMS_URI_ENDPOINT_STATE_START,
+      NULL);
+  gst_element_set_state (pipeline, GST_STATE_PLAYING);
+
+  g_main_loop_run (loop);
+
+  GST_DEBUG ("Stop executed");
+
+  for (i = 0; i < data.n; i++) {
+    g_free (data.pads[i]);
+  }
+
+  g_slice_free1 (sizeof (guint8) * data.n, data.pads);
+
+  gst_element_set_state (pipeline, GST_STATE_NULL);
+  gst_object_unref (GST_OBJECT (pipeline));
+  GST_DEBUG ("Pipe released");
+
+  g_source_remove (bus_watch_id);
+  g_main_loop_unref (loop);
+}
+
 GST_END_TEST
 /******************************/
 /* RecorderEndpoint test suit */
@@ -668,6 +803,12 @@ recorderendpoint_suite (void)
   tcase_add_test (tc_chain, check_states_pipeline);
   tcase_add_test (tc_chain, warning_pipeline);
   tcase_add_test (tc_chain, finite_video_test);
+
+  if (check_support_for_ksr ()) {
+    tcase_add_test (tc_chain, check_ksm_sink_request);
+  } else {
+    GST_WARNING ("No ksr profile supported. Test skipped");
+  }
 
   return s;
 }

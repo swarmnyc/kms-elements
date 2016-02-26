@@ -17,11 +17,13 @@
 #endif
 
 #include <gst/gst.h>
+#include <commons/kmsstats.h>
 #include <commons/kmsutils.h>
 #include <commons/kmselement.h>
 #include <commons/kmsagnosticcaps.h>
 #include "kmsplayerendpoint.h"
 #include <commons/kmsloop.h>
+#include <kms-elements-marshal.h>
 
 #define PLUGIN_NAME "playerendpoint"
 #define AUDIO_APPSRC "audio_appsrc"
@@ -30,7 +32,6 @@
 
 #define APPSRC_DATA "appsrc_data"
 #define APPSINK_DATA "appsink_data"
-#define BASE_TIME_DATA "base_time_data"
 
 GST_DEBUG_CATEGORY_STATIC (kms_player_endpoint_debug_category);
 #define GST_CAT_DEFAULT kms_player_endpoint_debug_category
@@ -43,15 +44,15 @@ GST_DEBUG_CATEGORY_STATIC (kms_player_endpoint_debug_category);
   )                                             \
 )
 
-#define BASE_TIME_LOCK(obj) (                                           \
-  g_mutex_lock (&KMS_PLAYER_ENDPOINT(obj)->priv->base_time_lock)        \
-)
-
-#define BASE_TIME_UNLOCK(obj) (                                         \
-  g_mutex_unlock (&KMS_PLAYER_ENDPOINT(obj)->priv->base_time_lock)      \
-)
-
 typedef void (*KmsActionFunc) (gpointer user_data);
+
+typedef struct _KmsPlayerStats
+{
+  gboolean enabled;
+  GstElement *src;
+  gulong meta_id;
+  KmsList *probes;              /* <Gstpad, KmsStatsProbe> */
+} KmsPlayerStats;
 
 struct _KmsPlayerEndpointPrivate
 {
@@ -60,12 +61,16 @@ struct _KmsPlayerEndpointPrivate
   KmsLoop *loop;
   gboolean use_encoded_media;
   GMutex base_time_lock;
+
+  KmsPlayerStats stats;
 };
 
 enum
 {
   PROP_0,
   PROP_USE_ENCODED_MEDIA,
+  PROP_VIDEO_DATA,
+  PROP_POSITION,
   N_PROPERTIES
 };
 
@@ -74,6 +79,7 @@ enum
   SIGNAL_EOS,
   SIGNAL_INVALID_URI,
   SIGNAL_INVALID_MEDIA,
+  SIGNAL_SET_POSITION,
   LAST_SIGNAL
 };
 
@@ -128,10 +134,112 @@ kms_player_endpoint_get_property (GObject * object, guint property_id,
     case PROP_USE_ENCODED_MEDIA:
       g_value_set_boolean (value, playerendpoint->priv->use_encoded_media);
       break;
+    case PROP_VIDEO_DATA:{
+      gint64 segment_start = -1;
+      gint64 segment_end = -1;
+      gint64 duration = -1;
+      gboolean seekable = FALSE;
+      GstFormat format;
+      GstStructure *video_data = NULL;
+      GstQuery *query = gst_query_new_seeking (GST_FORMAT_TIME);
+
+      if (gst_element_query (playerendpoint->priv->pipeline, query)) {
+        gst_query_parse_seeking (query,
+            &format, &seekable, &segment_start, &segment_end);
+      } else {
+        GST_WARNING_OBJECT (playerendpoint,
+            "Impossible to get the file duration");
+      }
+
+      gst_query_unref (query);
+
+      if (!gst_element_query_duration (playerendpoint->priv->pipeline,
+              GST_FORMAT_TIME, &duration)) {
+        GST_WARNING_OBJECT (playerendpoint,
+            "Impossible to get the file duration");
+      }
+
+      video_data = gst_structure_new ("video_data",
+          "isSeekable", G_TYPE_BOOLEAN, seekable,
+          "seekableInit", G_TYPE_INT64, segment_start,
+          "seekableEnd", G_TYPE_INT64, segment_end,
+          "duration", G_TYPE_INT64, duration, NULL);
+
+      g_value_set_boxed (value, video_data);
+      break;
+    }
+    case PROP_POSITION:{
+      gint64 position = -1;
+      gboolean ret = FALSE;
+
+      if (playerendpoint->priv->pipeline != NULL) {
+        ret = gst_element_query_position (playerendpoint->priv->pipeline,
+            GST_FORMAT_TIME, &position);
+      }
+
+      if (!ret) {
+        GST_WARNING_OBJECT (playerendpoint,
+            "It is not possible retrieve information about position");
+      }
+
+      g_value_set_int64 (value, position);
+      break;
+    }
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
   }
+}
+
+/* This function must be called holding the element mutex */
+static void
+kms_player_endpoint_disable_latency_probe (KmsPlayerEndpoint * self)
+{
+  GstPad *pad;
+
+  if (self->priv->stats.src == NULL || self->priv->stats.meta_id == 0UL) {
+    return;
+  }
+
+  pad = gst_element_get_static_pad (self->priv->stats.src, "src");
+
+  if (pad == NULL) {
+    GST_WARNING_OBJECT (self, "No source pad got from %" GST_PTR_FORMAT,
+        self->priv->stats.src);
+    return;
+  }
+
+  gst_pad_remove_probe (pad, self->priv->stats.meta_id);
+  self->priv->stats.meta_id = 0UL;
+
+  g_object_unref (pad);
+}
+
+/* This function must be called holding the element mutex */
+static void
+kms_player_endpoint_enable_latency_probe (KmsPlayerEndpoint * self)
+{
+  GstPad *pad;
+
+  if (self->priv->stats.src == NULL) {
+    GST_DEBUG_OBJECT (self, "No source element for stats is yet available");
+    return;
+  }
+
+  pad = gst_element_get_static_pad (self->priv->stats.src, "src");
+
+  if (pad == NULL) {
+    GST_WARNING_OBJECT (self, "No source pad got from %" GST_PTR_FORMAT,
+        self->priv->stats.src);
+    return;
+  }
+
+  if (self->priv->stats.enabled) {
+    self->priv->stats.meta_id = kms_stats_add_buffer_latency_meta_probe (pad,
+        FALSE, 0);
+  }
+
+  g_object_unref (pad);
 }
 
 static void
@@ -153,31 +261,35 @@ kms_player_endpoint_dispose (GObject * object)
     self->priv->pipeline = NULL;
   }
 
-  g_mutex_clear (&self->priv->base_time_lock);
-
   /* clean up as possible. May be called multiple times */
 
   G_OBJECT_CLASS (kms_player_endpoint_parent_class)->dispose (object);
 }
 
 static void
-release_gst_clock (gpointer data)
+kms_player_endpoint_finalize (GObject * object)
 {
-  g_slice_free (GstClockTime, data);
+  KmsPlayerEndpoint *self = KMS_PLAYER_ENDPOINT (object);
+
+  GST_DEBUG_OBJECT (self, "finalize");
+
+  g_mutex_clear (&self->priv->base_time_lock);
+  g_clear_object (&self->priv->stats.src);
+  kms_list_unref (self->priv->stats.probes);
+
+  G_OBJECT_CLASS (kms_player_endpoint_parent_class)->finalize (object);
 }
 
 static GstFlowReturn
-new_sample_cb (GstElement * appsink, gpointer user_data)
+new_preroll_cb (GstElement * appsink, gpointer user_data)
 {
   GstElement *appsrc = GST_ELEMENT (user_data);
   GstFlowReturn ret;
   GstSample *sample;
-  GstSegment *segment;
   GstBuffer *buffer;
-  GstClockTime *base_time;
   GstPad *src, *sink;
 
-  g_signal_emit_by_name (appsink, "pull-sample", &sample);
+  g_signal_emit_by_name (appsink, "pull-preroll", &sample);
 
   if (sample == NULL) {
     GST_ERROR_OBJECT (appsink, "Cannot get sample");
@@ -185,7 +297,6 @@ new_sample_cb (GstElement * appsink, gpointer user_data)
   }
 
   buffer = gst_sample_get_buffer (sample);
-  segment = gst_sample_get_segment (sample);
 
   if (buffer == NULL) {
     ret = GST_FLOW_OK;
@@ -196,44 +307,81 @@ new_sample_cb (GstElement * appsink, gpointer user_data)
 
   buffer = gst_buffer_make_writable (buffer);
 
-  if (GST_BUFFER_PTS_IS_VALID (buffer))
-    buffer->pts =
-        gst_segment_to_running_time (segment, GST_FORMAT_TIME, buffer->pts);
-  if (GST_BUFFER_DTS_IS_VALID (buffer))
-    buffer->dts =
-        gst_segment_to_running_time (segment, GST_FORMAT_TIME, buffer->dts);
+  buffer->pts = GST_CLOCK_TIME_NONE;
+  buffer->dts = GST_CLOCK_TIME_NONE;
 
-  BASE_TIME_LOCK (GST_OBJECT_PARENT (appsrc));
-
-  base_time =
-      g_object_get_data (G_OBJECT (GST_OBJECT_PARENT (appsrc)), BASE_TIME_DATA);
-
-  if (base_time == NULL) {
-    GstClock *clock;
-
-    clock = gst_element_get_clock (appsrc);
-    base_time = g_slice_new0 (GstClockTime);
-
-    g_object_set_data_full (G_OBJECT (GST_OBJECT_PARENT (appsrc)),
-        BASE_TIME_DATA, base_time, release_gst_clock);
-    *base_time =
-        gst_clock_get_time (clock) - gst_element_get_base_time (appsrc);
-
-    g_object_unref (clock);
-    GST_DEBUG ("Setting base time to: %" G_GUINT64_FORMAT, *base_time);
+  // HACK: Change duration 1 to -1 to avoid segmentation fault
+  //problems in seeks with some formats
+  if (buffer->duration == 1) {
+    buffer->duration = GST_CLOCK_TIME_NONE;
   }
 
-  if (GST_BUFFER_DTS_IS_VALID (buffer)) {
-    buffer->dts += *base_time;
+  src = gst_element_get_static_pad (appsrc, "src");
+  sink = gst_pad_get_peer (src);
+
+  if (sink != NULL) {
+    if (GST_OBJECT_FLAG_IS_SET (sink, GST_PAD_FLAG_EOS)) {
+      GST_INFO_OBJECT (sink, "Sending flush events");
+      gst_pad_send_event (sink, gst_event_new_flush_start ());
+      gst_pad_send_event (sink, gst_event_new_flush_stop (FALSE));
+    }
+    g_object_unref (sink);
   }
 
-  if (GST_BUFFER_PTS_IS_VALID (buffer)) {
-    buffer->pts += *base_time;
-  } else {
-    buffer->pts = buffer->dts;
+  g_object_unref (src);
+
+  g_signal_emit_by_name (appsrc, "push-buffer", buffer, &ret);
+
+  gst_buffer_unref (buffer);
+
+  if (ret != GST_FLOW_OK) {
+    /* something wrong */
+    GST_ERROR ("Could not send buffer to appsrc %s. Cause: %s",
+        GST_ELEMENT_NAME (appsrc), gst_flow_get_name (ret));
   }
 
-  BASE_TIME_UNLOCK (GST_OBJECT_PARENT (appsrc));
+end:
+  if (sample != NULL)
+    gst_sample_unref (sample);
+
+  return ret;
+}
+
+static GstFlowReturn
+new_sample_cb (GstElement * appsink, gpointer user_data)
+{
+  GstElement *appsrc = GST_ELEMENT (user_data);
+  GstFlowReturn ret;
+  GstSample *sample;
+  GstBuffer *buffer;
+  GstPad *src, *sink;
+
+  g_signal_emit_by_name (appsink, "pull-sample", &sample);
+
+  if (sample == NULL) {
+    GST_ERROR_OBJECT (appsink, "Cannot get sample");
+    return GST_FLOW_OK;
+  }
+
+  buffer = gst_sample_get_buffer (sample);
+
+  if (buffer == NULL) {
+    ret = GST_FLOW_OK;
+    goto end;
+  }
+
+  gst_buffer_ref (buffer);
+
+  buffer = gst_buffer_make_writable (buffer);
+
+  buffer->pts = GST_CLOCK_TIME_NONE;
+  buffer->dts = GST_CLOCK_TIME_NONE;
+
+  // HACK: Change duration 1 to -1 to avoid segmentation fault
+  //problems in seeks with some formats
+  if (buffer->duration == 1) {
+    buffer->duration = GST_CLOCK_TIME_NONE;
+  }
 
   src = gst_element_get_static_pad (appsrc, "src");
   sink = gst_pad_get_peer (src);
@@ -362,6 +510,35 @@ set_appsrc_caps (GstPad * pad, GstPadProbeInfo * info, gpointer element)
   return GST_PAD_PROBE_OK;
 }
 
+static void
+kms_player_end_point_add_stat_probe (KmsPlayerEndpoint * self, GstPad * pad,
+    KmsMediaType type)
+{
+  KmsStatsProbe *probe;
+
+  probe = kms_stats_probe_new (pad, type);
+
+  KMS_ELEMENT_LOCK (self);
+
+  kms_list_prepend (self->priv->stats.probes, g_object_ref (pad), probe);
+
+  if (self->priv->stats.enabled) {
+    kms_stats_probe_latency_meta_set_valid (probe, TRUE);
+  }
+
+  KMS_ELEMENT_UNLOCK (self);
+}
+
+static void
+kms_player_end_point_remove_stat_probe (KmsPlayerEndpoint * self, GstPad * pad)
+{
+  KMS_ELEMENT_LOCK (self);
+
+  kms_list_remove (self->priv->stats.probes, pad);
+
+  KMS_ELEMENT_UNLOCK (self);
+}
+
 static GstElement *
 kms_player_end_point_get_agnostic_for_pad (KmsPlayerEndpoint * self,
     GstPad * pad)
@@ -378,10 +555,13 @@ kms_player_end_point_get_agnostic_for_pad (KmsPlayerEndpoint * self,
   audio_caps = gst_caps_from_string (KMS_AGNOSTIC_AUDIO_CAPS);
   video_caps = gst_caps_from_string (KMS_AGNOSTIC_VIDEO_CAPS);
 
+  /* TODO: Update latency probe to set valid and media type */
   if (gst_caps_can_intersect (audio_caps, caps)) {
     agnosticbin = kms_element_get_audio_agnosticbin (KMS_ELEMENT (self));
+    kms_player_end_point_add_stat_probe (self, pad, KMS_MEDIA_TYPE_AUDIO);
   } else if (gst_caps_can_intersect (video_caps, caps)) {
     agnosticbin = kms_element_get_video_agnosticbin (KMS_ELEMENT (self));
+    kms_player_end_point_add_stat_probe (self, pad, KMS_MEDIA_TYPE_VIDEO);
   }
 
   gst_caps_unref (caps);
@@ -453,6 +633,8 @@ pad_added (GstElement * element, GstPad * pad, KmsPlayerEndpoint * self)
     g_signal_connect (appsink, "new-sample", G_CALLBACK (new_sample_cb),
         appsrc);
     g_signal_connect (appsink, "eos", G_CALLBACK (eos_cb), appsrc);
+    g_signal_connect (appsink, "new-preroll", G_CALLBACK (new_preroll_cb),
+        appsrc);
 
     g_object_set_data (G_OBJECT (pad), APPSINK_DATA, appsink);
     g_object_set_data (G_OBJECT (pad), APPSRC_DATA, appsrc);
@@ -462,7 +644,7 @@ pad_added (GstElement * element, GstPad * pad, KmsPlayerEndpoint * self)
     appsink = gst_element_factory_make ("fakesink", NULL);
   }
 
-  g_object_set (appsink, "sync", TRUE, "async", FALSE, NULL);
+  g_object_set (appsink, "sync", TRUE, "async", TRUE, NULL);
 
   sinkpad = gst_element_get_static_pad (appsink, "sink");
 
@@ -507,6 +689,8 @@ pad_removed (GstElement * element, GstPad * pad, KmsPlayerEndpoint * self)
 
   GST_DEBUG ("pad %" GST_PTR_FORMAT " removed", pad);
 
+  kms_player_end_point_remove_stat_probe (self, pad);
+
   appsink = g_object_steal_data (G_OBJECT (pad), APPSINK_DATA);
   appsrc = g_object_steal_data (G_OBJECT (pad), APPSRC_DATA);
 
@@ -528,9 +712,6 @@ kms_player_endpoint_stopped (KmsUriEndpoint * obj)
 
   /* Set internal pipeline to NULL */
   gst_element_set_state (self->priv->pipeline, GST_STATE_NULL);
-  BASE_TIME_LOCK (self);
-  g_object_set_data (G_OBJECT (self), BASE_TIME_DATA, NULL);
-  BASE_TIME_UNLOCK (self);
 
   KMS_URI_ENDPOINT_GET_CLASS (self)->change_state (KMS_URI_ENDPOINT (self),
       KMS_URI_ENDPOINT_STATE_STOP);
@@ -554,24 +735,118 @@ kms_player_endpoint_started (KmsUriEndpoint * obj)
       KMS_URI_ENDPOINT_STATE_START);
 }
 
+static gboolean
+kms_player_endpoint_set_position (KmsPlayerEndpoint * self, gint64 position)
+{
+  GstQuery *query;
+  GstEvent *seek;
+  gboolean seekable = FALSE;
+
+  query = gst_query_new_seeking (GST_FORMAT_TIME);
+  if (!gst_element_query (self->priv->pipeline, query)) {
+    GST_WARNING_OBJECT (self, "File not seekable in format time");
+    gst_query_unref (query);
+    return FALSE;
+  }
+
+  gst_query_parse_seeking (query, NULL, &seekable, NULL, NULL);
+  gst_query_unref (query);
+
+  if (!seekable) {
+    GST_WARNING_OBJECT (self, "File not seekable");
+    return FALSE;
+  }
+
+  seek = gst_event_new_seek (1.0, GST_FORMAT_TIME,
+      GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_TRICKMODE | GST_SEEK_FLAG_ACCURATE,
+      /* start */ GST_SEEK_TYPE_SET, position,
+      /* stop */ GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE);
+
+  if (!gst_element_send_event (self->priv->pipeline, seek)) {
+    GST_WARNING_OBJECT (self, "Seek failed");
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
 static void
 kms_player_endpoint_paused (KmsUriEndpoint * obj)
 {
   KmsPlayerEndpoint *self = KMS_PLAYER_ENDPOINT (obj);
+  GstStateChangeReturn ret;
 
   GST_DEBUG_OBJECT (self, "Pipeline paused");
 
   /* Set internal pipeline to paused */
-  gst_element_set_state (self->priv->pipeline, GST_STATE_PAUSED);
+  ret = gst_element_set_state (self->priv->pipeline, GST_STATE_PAUSED);
+
+  // HACK: Get the return and perform a seek if the return is success
+  //in order to get async state changes. That hack only should be necessary
+  //the first time that paused is called.
+
+  if (ret == GST_STATE_CHANGE_SUCCESS) {
+    gint64 position = -1;
+
+    gst_element_set_state (self->priv->pipeline, GST_STATE_PLAYING);
+
+    gst_element_query_position (self->priv->pipeline,
+        GST_FORMAT_TIME, &position);
+
+    kms_player_endpoint_set_position (self, position);
+
+    gst_element_set_state (self->priv->pipeline, GST_STATE_PAUSED);
+  }
 
   KMS_URI_ENDPOINT_GET_CLASS (self)->change_state (KMS_URI_ENDPOINT (self),
       KMS_URI_ENDPOINT_STATE_PAUSE);
 }
 
 static void
+configure_latency_probes (GstPad * pad, KmsStatsProbe * probe,
+    gboolean * enabled)
+{
+  if (*enabled) {
+    kms_stats_probe_latency_meta_set_valid (probe, TRUE);
+  } else {
+    kms_stats_probe_remove (probe);
+  }
+}
+
+static void
+kms_player_endpoint_update_media_stats (KmsPlayerEndpoint * self)
+{
+  kms_list_foreach (self->priv->stats.probes, (GHFunc) configure_latency_probes,
+      &self->priv->stats.enabled);
+
+  if (self->priv->stats.enabled) {
+    kms_player_endpoint_enable_latency_probe (self);
+  } else {
+    kms_player_endpoint_disable_latency_probe (self);
+  }
+}
+
+static void
+kms_player_endpoint_collect_media_stats (KmsElement * obj, gboolean enable)
+{
+  KmsPlayerEndpoint *self = KMS_PLAYER_ENDPOINT (obj);
+
+  KMS_ELEMENT_LOCK (self);
+
+  self->priv->stats.enabled = enable;
+  kms_player_endpoint_update_media_stats (self);
+
+  KMS_ELEMENT_UNLOCK (self);
+
+  KMS_ELEMENT_CLASS
+      (kms_player_endpoint_parent_class)->collect_media_stats (obj, enable);
+}
+
+static void
 kms_player_endpoint_class_init (KmsPlayerEndpointClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+  KmsElementClass *kms_element_class = KMS_ELEMENT_CLASS (klass);
   KmsUriEndpointClass *urienpoint_class = KMS_URI_ENDPOINT_CLASS (klass);
 
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
@@ -579,6 +854,8 @@ kms_player_endpoint_class_init (KmsPlayerEndpointClass * klass)
       "Joaquin Mengual García <kini.mengual@gmail.com>");
 
   gobject_class->dispose = kms_player_endpoint_dispose;
+  gobject_class->finalize = kms_player_endpoint_finalize;
+
   gobject_class->set_property = kms_player_endpoint_set_property;
   gobject_class->get_property = kms_player_endpoint_get_property;
 
@@ -586,11 +863,26 @@ kms_player_endpoint_class_init (KmsPlayerEndpointClass * klass)
   urienpoint_class->started = kms_player_endpoint_started;
   urienpoint_class->paused = kms_player_endpoint_paused;
 
+  kms_element_class->collect_media_stats =
+      GST_DEBUG_FUNCPTR (kms_player_endpoint_collect_media_stats);
+
+  klass->set_position = kms_player_endpoint_set_position;
+
   g_object_class_install_property (gobject_class, PROP_USE_ENCODED_MEDIA,
       g_param_spec_boolean ("use-encoded-media", "use encoded media",
           "The element uses encoded media instead of raw media. This mode "
           "could have an unexpected behaviour if key frames are lost",
           FALSE, G_PARAM_READWRITE | GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (gobject_class, PROP_VIDEO_DATA,
+      g_param_spec_boxed ("video-data", "video data",
+          "Get video data from played data",
+          GST_TYPE_STRUCTURE, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_POSITION,
+      g_param_spec_int64 ("position", "position",
+          "Playing position in the file as miliseconds",
+          0, G_MAXINT64, 0, G_PARAM_READABLE | GST_PARAM_MUTABLE_READY));
 
   kms_player_endpoint_signals[SIGNAL_EOS] =
       g_signal_new ("eos",
@@ -612,6 +904,13 @@ kms_player_endpoint_class_init (KmsPlayerEndpointClass * klass)
       G_SIGNAL_RUN_LAST,
       G_STRUCT_OFFSET (KmsPlayerEndpointClass, invalid_media_signal), NULL,
       NULL, g_cclosure_marshal_VOID__VOID, G_TYPE_NONE, 0);
+
+  kms_player_endpoint_signals[SIGNAL_SET_POSITION] =
+      g_signal_new ("set-position",
+      G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_ACTION | G_SIGNAL_RUN_LAST,
+      G_STRUCT_OFFSET (KmsPlayerEndpointClass, set_position), NULL, NULL,
+      __kms_elements_marshal_BOOLEAN__INT64, G_TYPE_BOOLEAN, 1, G_TYPE_INT64);
 
   /* Registers a private structure for the instantiatable type */
   g_type_class_add_private (klass, sizeof (KmsPlayerEndpointPrivate));
@@ -722,6 +1021,34 @@ bus_sync_signal_handler (GstBus * bus, GstMessage * msg, gpointer data)
 }
 
 static void
+source_setup_cb (GstElement * uridecodebin, GstElement * source,
+    KmsPlayerEndpoint * self)
+{
+  GstPad *srcpad;
+
+  srcpad = gst_element_get_static_pad (source, "src");
+
+  if (srcpad == NULL) {
+    GST_WARNING_OBJECT (self, "Can not set latency probe to %" GST_PTR_FORMAT,
+        source);
+    return;
+  }
+
+  KMS_ELEMENT_LOCK (self);
+
+  kms_player_endpoint_disable_latency_probe (self);
+
+  g_clear_object (&self->priv->stats.src);
+  self->priv->stats.src = g_object_ref (source);
+
+  kms_player_endpoint_enable_latency_probe (self);
+
+  KMS_ELEMENT_UNLOCK (self);
+
+  g_object_unref (srcpad);
+}
+
+static void
 kms_player_endpoint_init (KmsPlayerEndpoint * self)
 {
   GstBus *bus;
@@ -735,17 +1062,24 @@ kms_player_endpoint_init (KmsPlayerEndpoint * self)
   self->priv->uridecodebin =
       gst_element_factory_make ("uridecodebin", URIDECODEBIN);
 
-  gst_bin_add (GST_BIN (self->priv->pipeline), self->priv->uridecodebin);
-
-  bus = gst_pipeline_get_bus (GST_PIPELINE (self->priv->pipeline));
-  gst_bus_set_sync_handler (bus, bus_sync_signal_handler, self, NULL);
-  g_object_unref (bus);
+  self->priv->stats.probes = kms_list_new_full (g_direct_equal, g_object_unref,
+      (GDestroyNotify) kms_stats_probe_destroy);
 
   /* Connect to signals */
   g_signal_connect (self->priv->uridecodebin, "pad-added",
       G_CALLBACK (pad_added), self);
   g_signal_connect (self->priv->uridecodebin, "pad-removed",
       G_CALLBACK (pad_removed), self);
+  g_signal_connect (self->priv->uridecodebin, "source-setup",
+      G_CALLBACK (source_setup_cb), self);
+
+  g_object_set (self->priv->uridecodebin, "download", TRUE, NULL);
+
+  gst_bin_add (GST_BIN (self->priv->pipeline), self->priv->uridecodebin);
+
+  bus = gst_pipeline_get_bus (GST_PIPELINE (self->priv->pipeline));
+  gst_bus_set_sync_handler (bus, bus_sync_signal_handler, self, NULL);
+  g_object_unref (bus);
 }
 
 gboolean
