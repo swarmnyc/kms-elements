@@ -89,5 +89,10 @@ curl http://placeimg.com/800/600/any.jpg > bg.jpg
 sudo mv bg.jpg /etc/kurento/
 node server.js 
 ```
+### install the updated compositor plugin, built from [Swarm gst-plugins-bad]
+```
+# replace the original compositor plugin, which will expand the output video's resolution according to the content from hubport.
+sudo cp  ./gst-plugins-bad/libgstcompositor.so /usr/lib/x86_64-linux-gnu/gstreamer-1.5/
+```
 
-
+[Swarm gst-plugins-bad]: https://github.com/swarmnyc/gst-plugins-bad
