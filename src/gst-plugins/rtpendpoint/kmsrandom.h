@@ -13,14 +13,4 @@
  *
  */
 
-#ifndef __KMS_SOCKETUTILS_H__
-#define __KMS_SOCKETUTILS_H__
-
-#include <gio/gio.h>
-
-void kms_socket_finalize (GSocket ** socket);
-guint16 kms_socket_get_port (GSocket * socket);
-gboolean kms_rtp_connection_get_rtp_rtcp_sockets (GSocket ** rtp,
-    GSocket ** rtcp, guint16 min_port, guint16 max_port, GSocketFamily socket_family);
-
-#endif /* __KMS_SOCKETUTILS_H__ */
+gchar * generate_random_key (guint size);

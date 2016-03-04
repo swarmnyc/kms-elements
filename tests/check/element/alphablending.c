@@ -23,6 +23,8 @@
 #define MASTER_PORT "set-master"
 #define SET_PORT_PROPERTIES "set-port-properties"
 
+#define SINK_VIDEO_STREAM "sink_video_default"
+
 GstElement *pipeline;
 GMainLoop *loop;
 GstElement *hubport1, *hubport2, *hubport3;
@@ -47,7 +49,7 @@ srcpad_added (GstElement * hubport, GstPad * new_pad, gpointer user_data)
   padname = gst_pad_get_name (new_pad);
   fail_if (padname == NULL);
 
-  if (g_strcmp0 (padname, "sink_video") == 0) {
+  if (g_strcmp0 (padname, SINK_VIDEO_STREAM) == 0) {
     //connect videosrc
     videosrc = gst_element_factory_make ("videotestsrc", NULL);
     sinkpad = gst_element_get_static_pad (videosrc, "src");
@@ -117,8 +119,8 @@ GST_START_TEST (connection)
   signalId3 =
       g_signal_connect (hubport3, "pad-added", G_CALLBACK (srcpad_added), NULL);
 
-  g_signal_emit_by_name (hubport1, "request-new-srcpad",
-      KMS_ELEMENT_PAD_TYPE_VIDEO, NULL, &padname1);
+  g_signal_emit_by_name (hubport1, "request-new-pad",
+      KMS_ELEMENT_PAD_TYPE_VIDEO, NULL, GST_PAD_SRC, &padname1);
   fail_if (padname1 == NULL);
 
   gst_element_set_state (pipeline, GST_STATE_PLAYING);

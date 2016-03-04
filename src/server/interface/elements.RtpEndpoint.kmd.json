@@ -19,9 +19,33 @@
               "type": "SDES",
               "optional": true,
               "defaultValue": {}
+            },
+            {
+              "name": "useIpv6",
+              "doc": "Use IPv6 instead of IPv4",
+              "type": "boolean",
+              "optional": true,
+              "defaultValue": false
             }
           ]
+        },
+      "events": [
+        "OnKeySoftLimit"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "OnKeySoftLimit",
+      "doc": "Emitted when encryption is used and any stream reached the soft key usage limit and will expire soon.",
+      "extends": "Media",
+      "properties": [
+        {
+          "name": "mediaType",
+          "doc": "The media stream",
+          "type": "MediaType"
         }
+      ]
     }
   ],
   "complexTypes": [

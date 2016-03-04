@@ -21,9 +21,11 @@ public:
 
   RtpEndpointImpl (const boost::property_tree::ptree &conf,
                    std::shared_ptr<MediaPipeline> mediaPipeline,
-                   std::shared_ptr<SDES> crypto);
+                   std::shared_ptr<SDES> crypto, bool useIpv6);
 
-  virtual ~RtpEndpointImpl () {};
+  virtual ~RtpEndpointImpl ();
+
+  sigc::signal<void, OnKeySoftLimit> signalOnKeySoftLimit;
 
   /* Next methods are automatically implemented by code generator */
   virtual bool connect (const std::string &eventType,
@@ -35,7 +37,13 @@ public:
 
   virtual void Serialize (JsonSerializer &serializer);
 
+protected:
+  virtual void postConstructor ();
+
 private:
+
+  gulong handlerOnKeySoftLimit = 0;
+  void onKeySoftLimit (gchar *media);
 
   class StaticConstructor
   {

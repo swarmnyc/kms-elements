@@ -18,7 +18,6 @@
 
 #include <string.h>
 #include <nice/interfaces.h>
-#include <gst/rtp/gstrtcpbuffer.h>
 
 #include "kmsrtpendpoint.h"
 #include "kmsrtpsession.h"
@@ -30,6 +29,7 @@
 #include <commons/kmsrefstruct.h>
 #include "kms-rtp-enumtypes.h"
 #include "kmsrtpsdescryptosuite.h"
+#include "kmsrandom.h"
 
 #define PLUGIN_NAME "rtpendpoint"
 
@@ -43,8 +43,6 @@ G_DEFINE_TYPE (KmsRtpEndpoint, kms_rtp_endpoint, KMS_TYPE_BASE_RTP_ENDPOINT);
 #define DEFAULT_MASTER_KEY NULL
 #define DEFAULT_CRYPTO_SUITE KMS_RTP_SDES_CRYPTO_SUITE_NONE
 #define DEFAULT_KEY_TAG 1
-
-#define MAX_RETRIES 4
 
 #define KMS_SRTP_CIPHER_AES_128_ICM 1
 #define KMS_SRTP_CIPHER_AES_256_ICM 2
@@ -75,7 +73,6 @@ typedef struct _SdesKeys
   GValue remote;
   KmsRtpBaseConnection *conn;
   KmsISdpMediaExtension *ext;
-  gboolean offerer;
 } SdesKeys;
 
 struct _KmsRtpEndpointPrivate
@@ -90,8 +87,13 @@ struct _KmsRtpEndpointPrivate
 /* Signals and args */
 enum
 {
+  /* signals */
+  SIGNAL_KEY_SOFT_LIMIT,
+
   LAST_SIGNAL
 };
+
+static guint obj_signals[LAST_SIGNAL] = { 0 };
 
 enum
 {
@@ -127,8 +129,13 @@ sdes_ext_data_new (KmsRtpEndpoint * ep, const gchar * media)
 static void
 sdes_keys_destroy (SdesKeys * keys)
 {
-  g_value_unset (&keys->local);
-  g_value_unset (&keys->remote);
+  if (G_IS_VALUE (&keys->local)) {
+    g_value_unset (&keys->local);
+  }
+
+  if (G_IS_VALUE (&keys->remote)) {
+    g_value_unset (&keys->remote);
+  }
 
   g_clear_object (&keys->conn);
   g_clear_object (&keys->ext);
@@ -177,18 +184,6 @@ get_auth_cipher_from_crypto (SrtpCryptoSuite crypto, guint * auth,
   }
 }
 
-static void
-kms_rtp_endpoint_log_key (KmsRtpEndpoint * self, GValue * key,
-    const gchar * media, gboolean local)
-{
-  const GstStructure *str;
-
-  str = gst_value_get_structure (key);
-
-  GST_DEBUG_OBJECT (self, "Set %s %s key: %" GST_PTR_FORMAT,
-      (local) ? "local" : "remote", media, str);
-}
-
 static gboolean
 kms_rtp_endpoint_set_local_srtp_connection_key (KmsRtpEndpoint * self,
     const gchar * media, SdesKeys * sdes_keys)
@@ -219,23 +214,22 @@ kms_rtp_endpoint_set_local_srtp_connection_key (KmsRtpEndpoint * self,
       key, auth, cipher, TRUE);
   g_free (key);
 
-  kms_rtp_endpoint_log_key (self, &sdes_keys->local, media, TRUE);
-
   return TRUE;
 }
 
-static gboolean
+static void
 kms_rtp_endpoint_set_remote_srtp_connection_key (KmsRtpEndpoint * self,
     const gchar * media, SdesKeys * sdes_keys)
 {
   SrtpCryptoSuite my_crypto, rem_crypto;
   guint my_tag, rem_tag;
   gchar *rem_key = NULL;
-  gboolean ret = FALSE;
+  gboolean done = FALSE;
   guint auth, cipher;
 
   if (!G_IS_VALUE (&sdes_keys->local) || !G_IS_VALUE (&sdes_keys->remote)) {
-    return FALSE;
+    GST_DEBUG_OBJECT (self, "Keys are not yet negotiated");
+    return;
   }
 
   if (!kms_sdp_sdes_ext_get_parameters_from_key (&sdes_keys->local,
@@ -262,14 +256,23 @@ kms_rtp_endpoint_set_remote_srtp_connection_key (KmsRtpEndpoint * self,
   kms_srtp_connection_set_key (KMS_SRTP_CONNECTION (sdes_keys->conn), rem_key,
       auth, cipher, FALSE);
 
-  kms_rtp_endpoint_log_key (self, &sdes_keys->remote, media, FALSE);
-
-  ret = TRUE;
+  done = TRUE;
 
 end:
-  g_free (rem_key);
+  if (!done) {
+    GST_ERROR_OBJECT (self, "Can not configure remote connection key");
+  }
 
-  return ret;
+  g_free (rem_key);
+}
+
+static void
+conn_soft_limit_cb (KmsSrtpConnection * conn, gpointer user_data)
+{
+  SdesExtData *data = (SdesExtData *) user_data;
+  KmsRtpEndpoint *self = data->rtpep;
+
+  g_signal_emit (self, obj_signals[SIGNAL_KEY_SOFT_LIMIT], 0, data->media);
 }
 
 static KmsRtpBaseConnection *
@@ -277,7 +280,19 @@ kms_rtp_endpoint_get_connection (KmsRtpEndpoint * self, KmsSdpSession * sess,
     SdpMediaConfig * mconf)
 {
   if (self->priv->use_sdes) {
-    return kms_srtp_session_get_connection (KMS_SRTP_SESSION (sess), mconf);
+    KmsRtpBaseConnection *conn;
+    GstSDPMedia *media;
+    SdesExtData *data;
+
+    conn = kms_srtp_session_get_connection (KMS_SRTP_SESSION (sess), mconf);
+
+    media = kms_sdp_media_config_get_sdp_media (mconf);
+    data = sdes_ext_data_new (self, gst_sdp_media_get_media (media));
+
+    g_signal_connect_data (conn, "key-soft-limit",
+        G_CALLBACK (conn_soft_limit_cb), data,
+        (GClosureNotify) kms_ref_struct_unref, 0);
+    return conn;
   } else {
     return kms_rtp_session_get_connection (KMS_RTP_SESSION (sess), mconf);
   }
@@ -286,16 +301,78 @@ kms_rtp_endpoint_get_connection (KmsRtpEndpoint * self, KmsSdpSession * sess,
 /* Internal session management begin */
 
 static void
+kms_rtp_endpoint_set_addr (KmsRtpEndpoint * self)
+{
+  GList *ips, *l;
+  gboolean done = FALSE;
+
+  ips = nice_interfaces_get_local_ips (FALSE);
+  for (l = ips; l != NULL && !done; l = l->next) {
+    GInetAddress *addr;
+    gboolean is_ipv6 = FALSE;
+
+    addr = g_inet_address_new_from_string (l->data);
+    if (G_IS_INET_ADDRESS (addr)) {
+      switch (g_inet_address_get_family (addr)) {
+        case G_SOCKET_FAMILY_INVALID:
+        case G_SOCKET_FAMILY_UNIX:
+          /* Ignore this addresses */
+          break;
+        case G_SOCKET_FAMILY_IPV6:
+          is_ipv6 = TRUE;
+        case G_SOCKET_FAMILY_IPV4:
+        {
+          gchar *addr_str;
+          gboolean use_ipv6;
+
+          g_object_get (self, "use-ipv6", &use_ipv6, NULL);
+          if (is_ipv6 != use_ipv6) {
+            GST_DEBUG_OBJECT (self, "No valid address type: %d", is_ipv6);
+            break;
+          }
+
+          addr_str = g_inet_address_to_string (addr);
+          if (addr_str != NULL) {
+            g_object_set (self, "addr", addr_str, NULL);
+            g_free (addr_str);
+            done = TRUE;
+          }
+          break;
+        }
+      }
+    }
+
+    if (G_IS_OBJECT (addr)) {
+      g_object_unref (addr);
+    }
+  }
+
+  g_list_free_full (ips, g_free);
+
+  if (!done) {
+    GST_WARNING_OBJECT (self, "Addr not set");
+  }
+}
+
+static void
 kms_rtp_endpoint_create_session_internal (KmsBaseSdpEndpoint * base_sdp,
     gint id, KmsSdpSession ** sess)
 {
   KmsIRtpSessionManager *manager = KMS_I_RTP_SESSION_MANAGER (base_sdp);
   KmsRtpEndpoint *self = KMS_RTP_ENDPOINT (base_sdp);
+  gboolean use_ipv6 = FALSE;
 
+  /* Get ip address now that session is bein created */
+  kms_rtp_endpoint_set_addr (self);
+
+  g_object_get (self, "use-ipv6", &use_ipv6, NULL);
   if (self->priv->use_sdes) {
-    *sess = KMS_SDP_SESSION (kms_srtp_session_new (base_sdp, id, manager));
+    *sess =
+        KMS_SDP_SESSION (kms_srtp_session_new (base_sdp, id, manager,
+            use_ipv6));
   } else {
-    *sess = KMS_SDP_SESSION (kms_rtp_session_new (base_sdp, id, manager));
+    *sess =
+        KMS_SDP_SESSION (kms_rtp_session_new (base_sdp, id, manager, use_ipv6));
   }
 
   /* Chain up */
@@ -307,25 +384,6 @@ kms_rtp_endpoint_create_session_internal (KmsBaseSdpEndpoint * base_sdp,
 /* Internal session management end */
 
 /* Media handler management begin */
-
-static gchar *
-generate_random_key (guint size)
-{
-  guint8 *buff;
-  gchar *key;
-  guint i;
-
-  buff = g_malloc0 (size);
-
-  for (i = 0; i + 4 < size; i += 4) {
-    GST_WRITE_UINT32_BE (buff + i, g_random_int ());
-  }
-
-  key = g_base64_encode (buff, size);
-  g_free (buff);
-
-  return key;
-}
 
 static guint
 get_max_key_size (SrtpCryptoSuite crypto)
@@ -367,6 +425,10 @@ kms_rtp_endpoint_create_new_key (KmsRtpEndpoint * self, guint tag, GValue * key)
     self->priv->master_key = generate_random_key (size);
   }
 
+  if (self->priv->master_key == NULL) {
+    return FALSE;
+  }
+
   return kms_sdp_sdes_ext_create_key_detailed (tag, self->priv->master_key,
       (SrtpCryptoSuite) self->priv->crypto, NULL, NULL, NULL, key, NULL);
 }
@@ -399,7 +461,6 @@ kms_rtp_endpoint_on_offer_keys_cb (KmsSdpSdesExt * ext, SdesExtData * edata)
   }
 
   enhanced_g_value_copy (&key, &sdes_keys->local);
-  sdes_keys->offerer = TRUE;
 
   KMS_ELEMENT_UNLOCK (self);
 
@@ -497,7 +558,6 @@ kms_rtp_endpoint_on_answer_keys_cb (KmsSdpSdesExt * ext, const GArray * keys,
 
   enhanced_g_value_copy (key, &sdes_keys->local);
   enhanced_g_value_copy (offer_key, &sdes_keys->remote);
-  sdes_keys->offerer = FALSE;
 
   ret = TRUE;
 
@@ -523,16 +583,10 @@ kms_rtp_endpoint_on_selected_key_cb (KmsSdpSdesExt * ext, const GValue * key,
     goto end;
   }
 
-  if (!sdes_keys->offerer) {
-    goto end;
-  }
-
   enhanced_g_value_copy (key, &sdes_keys->remote);
 
-  if (!kms_rtp_endpoint_set_remote_srtp_connection_key (self, edata->media,
-          sdes_keys)) {
-    GST_ERROR_OBJECT (self, "Can not set remote keys");
-  }
+  kms_rtp_endpoint_set_remote_srtp_connection_key (self, edata->media,
+      sdes_keys);
 
 end:
   KMS_ELEMENT_UNLOCK (self);
@@ -620,60 +674,6 @@ kms_rtp_endpoint_create_media_handler (KmsBaseSdpEndpoint * base_sdp,
 /* Media handler management end */
 
 static void
-kms_rtp_endpoint_set_addr (KmsRtpEndpoint * self)
-{
-  GList *ips, *l;
-  gboolean done = FALSE;
-
-  ips = nice_interfaces_get_local_ips (FALSE);
-  for (l = ips; l != NULL && !done; l = l->next) {
-    GInetAddress *addr;
-    gboolean is_ipv6 = FALSE;
-
-    addr = g_inet_address_new_from_string (l->data);
-    if (G_IS_INET_ADDRESS (addr)) {
-      switch (g_inet_address_get_family (addr)) {
-        case G_SOCKET_FAMILY_INVALID:
-        case G_SOCKET_FAMILY_UNIX:
-          /* Ignore this addresses */
-          break;
-        case G_SOCKET_FAMILY_IPV6:
-          is_ipv6 = TRUE;
-        case G_SOCKET_FAMILY_IPV4:
-        {
-          gchar *addr_str;
-          gboolean use_ipv6;
-
-          g_object_get (self, "use-ipv6", &use_ipv6, NULL);
-          if (is_ipv6 != use_ipv6) {
-            GST_DEBUG_OBJECT (self, "No valid address type: %d", is_ipv6);
-            break;
-          }
-
-          addr_str = g_inet_address_to_string (addr);
-          if (addr_str != NULL) {
-            g_object_set (self, "addr", addr_str, NULL);
-            g_free (addr_str);
-            done = TRUE;
-          }
-          break;
-        }
-      }
-    }
-
-    if (G_IS_OBJECT (addr)) {
-      g_object_unref (addr);
-    }
-  }
-
-  g_list_free_full (ips, g_free);
-
-  if (!done) {
-    GST_WARNING_OBJECT (self, "Addr not set");
-  }
-}
-
-static void
 kms_rtp_endpoint_configure_connection_keys (KmsRtpEndpoint * self,
     KmsRtpBaseConnection * conn, const gchar * media)
 {
@@ -694,13 +694,7 @@ kms_rtp_endpoint_configure_connection_keys (KmsRtpEndpoint * self,
     goto end;
   }
 
-  if (sdes_keys->offerer) {
-    goto end;
-  }
-
-  if (!kms_rtp_endpoint_set_remote_srtp_connection_key (self, media, sdes_keys)) {
-    GST_ERROR_OBJECT (self, "Can not configure remote connection key");
-  }
+  kms_rtp_endpoint_set_remote_srtp_connection_key (self, media, sdes_keys);
 
 end:
   KMS_ELEMENT_UNLOCK (self);
@@ -889,29 +883,6 @@ kms_rtp_endpoint_get_property (GObject * object, guint prop_id,
 }
 
 static void
-kms_rtp_endpoint_configure_transport_key (KmsRtpEndpoint * self,
-    const GstSDPMedia * media)
-{
-  SdesKeys *sdes_keys;
-  GError *err = NULL;
-
-  sdes_keys = g_hash_table_lookup (self->priv->sdes_keys,
-      gst_sdp_media_get_media (media));
-
-  if (sdes_keys == NULL) {
-    GST_ERROR_OBJECT (self, "No keys configured for connection");
-
-    return;
-  }
-
-  if (!kms_i_sdp_media_extension_process_answer_attributes
-      (KMS_I_SDP_MEDIA_EXTENSION (sdes_keys->ext), media, &err)) {
-    GST_ERROR_OBJECT (self, "%s", err->message);
-    g_error_free (err);
-  }
-}
-
-static void
 kms_rtp_endpoint_connect_input_elements (KmsBaseSdpEndpoint *
     base_sdp_endpoint, KmsSdpSession * sess)
 {
@@ -939,8 +910,6 @@ kms_rtp_endpoint_connect_input_elements (KmsBaseSdpEndpoint *
           media_str);
       continue;
     }
-
-    kms_rtp_endpoint_configure_transport_key (self, media);
   }
 }
 
@@ -948,6 +917,8 @@ static void
 kms_rtp_endpoint_finalize (GObject * object)
 {
   KmsRtpEndpoint *self = KMS_RTP_ENDPOINT (object);
+
+  GST_DEBUG_OBJECT (self, "finalize");
 
   g_free (self->priv->master_key);
   g_hash_table_unref (self->priv->sdes_keys);
@@ -1009,6 +980,13 @@ kms_rtp_endpoint_class_init (KmsRtpEndpointClass * klass)
           KMS_TYPE_RTP_SDES_CRYPTO_SUITE, DEFAULT_CRYPTO_SUITE,
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
+  obj_signals[SIGNAL_KEY_SOFT_LIMIT] =
+      g_signal_new ("key-soft-limit",
+      G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST,
+      G_STRUCT_OFFSET (KmsRtpEndpointClass, key_soft_limit), NULL, NULL,
+      g_cclosure_marshal_VOID__STRING, G_TYPE_NONE, 1, G_TYPE_STRING);
+
   g_type_class_add_private (klass, sizeof (KmsRtpEndpointPrivate));
 }
 
@@ -1026,8 +1004,6 @@ kms_rtp_endpoint_init (KmsRtpEndpoint * self)
       FALSE, "rtcp-mux", FALSE, "rtcp-nack", TRUE, "rtcp-remb", FALSE,
       "max-video-recv-bandwidth", 0, NULL);
   /* FIXME: remove max-video-recv-bandwidth when it b=AS:X is in the SDP offer */
-
-  kms_rtp_endpoint_set_addr (self);
 }
 
 gboolean

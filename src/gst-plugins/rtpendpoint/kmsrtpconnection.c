@@ -19,8 +19,6 @@
 #define GST_CAT_DEFAULT kmsrtpconnection
 GST_DEBUG_CATEGORY_STATIC (GST_CAT_DEFAULT);
 
-#define MAX_RETRIES 10
-
 #define GST_DEFAULT_NAME "kmsrtpconnection"
 
 #define KMS_RTP_CONNECTION_GET_PRIVATE(obj) (   \
@@ -214,24 +212,26 @@ kms_rtp_connection_get_property (GObject * object,
 }
 
 KmsRtpConnection *
-kms_rtp_connection_new (guint16 min_port, guint16 max_port)
+kms_rtp_connection_new (guint16 min_port, guint16 max_port, gboolean use_ipv6)
 {
   GObject *obj;
   KmsRtpConnection *conn;
   KmsRtpConnectionPrivate *priv;
-  gint retries = 0;
+  GSocketFamily socket_family;
 
   obj = g_object_new (KMS_TYPE_RTP_CONNECTION, NULL);
   conn = KMS_RTP_CONNECTION (obj);
   priv = conn->priv;
 
-  while (!kms_rtp_connection_get_rtp_rtcp_sockets
-      (&priv->rtp_socket, &priv->rtcp_socket, min_port, max_port)
-      && retries++ < MAX_RETRIES) {
-    GST_WARNING_OBJECT (obj, "Getting ports failed, retring");
+  if (use_ipv6) {
+    socket_family = G_SOCKET_FAMILY_IPV6;
+  } else {
+    socket_family = G_SOCKET_FAMILY_IPV4;
   }
 
-  if (priv->rtp_socket == NULL) {
+  if (!kms_rtp_connection_get_rtp_rtcp_sockets
+      (&priv->rtp_socket, &priv->rtcp_socket, min_port, max_port,
+          socket_family)) {
     GST_ERROR_OBJECT (obj, "Cannot get ports");
     g_object_unref (obj);
     return NULL;
@@ -241,13 +241,15 @@ kms_rtp_connection_new (guint16 min_port, guint16 max_port)
   priv->rtp_udpsrc = gst_element_factory_make ("udpsrc", NULL);
   g_object_set (priv->rtp_udpsink, "socket", priv->rtp_socket,
       "sync", FALSE, "async", FALSE, NULL);
-  g_object_set (priv->rtp_udpsrc, "socket", priv->rtp_socket, NULL);
+  g_object_set (priv->rtp_udpsrc, "socket", priv->rtp_socket, "auto-multicast",
+      FALSE, NULL);
 
   priv->rtcp_udpsink = gst_element_factory_make ("multiudpsink", NULL);
   priv->rtcp_udpsrc = gst_element_factory_make ("udpsrc", NULL);
   g_object_set (priv->rtcp_udpsink, "socket", priv->rtcp_socket,
       "sync", FALSE, "async", FALSE, NULL);
-  g_object_set (priv->rtcp_udpsrc, "socket", priv->rtcp_socket, NULL);
+  g_object_set (priv->rtcp_udpsrc, "socket", priv->rtcp_socket,
+      "auto-multicast", FALSE, NULL);
 
   kms_i_rtp_connection_connected_signal (KMS_I_RTP_CONNECTION (conn));
 
