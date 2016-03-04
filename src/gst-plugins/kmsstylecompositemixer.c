@@ -932,7 +932,7 @@ create_freezeimage_video (KmsStyleCompositeMixer * self)
   // create the elements.
   if (bg_img == NULL) {
     source = gst_element_factory_make ("souphttpsrc", NULL);
-    g_object_set (source, "location", "http://placeimg.com/800/600/any.jpg",
+    g_object_set (source, "location", "http://placeimg.com/1280/720/any.jpg",
         "is-live", TRUE, NULL);
     GST_TRACE ("@rentao using default background image");
   } else if (bg_img[0] == '/') {
@@ -1267,8 +1267,8 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
       g_object_set (G_OBJECT (capsfilter), "caps-change-mode", 1, NULL);
 
       if (self->priv->output_width <= 0) {
-        self->priv->output_width = 800;
-        self->priv->output_height = 600;
+        self->priv->output_width = 1280;
+        self->priv->output_height = 720;
       }
       filtercaps =
           gst_caps_new_simple ("video/x-raw",
