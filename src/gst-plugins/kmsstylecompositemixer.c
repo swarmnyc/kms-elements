@@ -144,8 +144,8 @@ typedef struct _KmsStyleCompositeMixerData
   KmsStyleCompositeMixer *mixer;
   GstElement *capsfilter;
 //  GstElement *capsfilter_scale;
-  GstElement *videocrop;
-  GstElement *videoscale;
+//  GstElement *videocrop;
+//  GstElement *videoscale;
   GstElement *tee;
   GstElement *fakesink;
   gboolean input;
@@ -299,7 +299,8 @@ static void
 kms_style_composite_mixer_recalculate_sizes (gpointer data)
 {
   KmsStyleCompositeMixer *self = KMS_STYLE_COMPOSITE_MIXER (data);
-  GstCaps *filtercaps;
+
+//  GstCaps *filtercaps;
   gint n_columns, n_rows;
   GList *l;
   GList *values = g_hash_table_get_values (self->priv->ports);
@@ -471,7 +472,7 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       left = 0;
       top = 0;
 
-      SCALE_TO_JUST_FULL_COVER (src_width, src_height, v_width, v_height);
+//      SCALE_TO_JUST_FULL_COVER (src_width, src_height, v_width, v_height);
 //      filtercaps =
 //              gst_caps_new_simple ("video/x-raw",
 //                      "width", G_TYPE_INT, src_width, "height", G_TYPE_INT, src_height,
@@ -503,18 +504,18 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
 //      g_object_set (port_data->videocrop, "left", (src_width - v_width) / 2,
 //              "right", (src_width - v_width) / 2, NULL);
     }
-    filtercaps =
-        gst_caps_new_simple ("video/x-raw",
-        "width", G_TYPE_INT, src_width, "height", G_TYPE_INT, src_height,
-        "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
-        GST_TYPE_FRACTION, 1, 1, NULL);
-    g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
-    gst_caps_unref (filtercaps);
-    // crop the source view and paste to master view.
-    g_object_set (port_data->videocrop, "top", (src_height - v_height) / 2,
-        "bottom", (src_height - v_height) / 2, NULL);
-    g_object_set (port_data->videocrop, "left", (src_width - v_width) / 2,
-        "right", (src_width - v_width) / 2, NULL);
+//    filtercaps =
+//        gst_caps_new_simple ("video/x-raw",
+//        "width", G_TYPE_INT, src_width, "height", G_TYPE_INT, src_height,
+//        "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
+//        GST_TYPE_FRACTION, 1, 1, NULL);
+//    g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
+//    gst_caps_unref (filtercaps);
+//    // crop the source view and paste to master view.
+//    g_object_set (port_data->videocrop, "top", (src_height - v_height) / 2,
+//        "bottom", (src_height - v_height) / 2, NULL);
+//    g_object_set (port_data->videocrop, "left", (src_width - v_width) / 2,
+//        "right", (src_width - v_width) / 2, NULL);
 
 //    SCALE_TO_JUST_FULL_COVER (src_width, src_height, v_width, v_height);
 //    src_height = o_height;
@@ -542,6 +543,7 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
 //    g_object_set (port_data->videocrop, "left", (src_width - v_width) / 2,
 //        "right", (src_width - v_width) / 2, NULL);
 //    g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top, "width", v_width, "height", v_height,
+//    g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top, "alpha", 1.0, NULL);
     g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top,
         "width", v_width, "height", v_height, "alpha", 1.0, NULL);
 
@@ -608,25 +610,16 @@ remove_elements_from_pipeline (KmsStyleCompositeMixerData * port_data)
   gst_element_set_state (port_data->capsfilter, GST_STATE_NULL);
   gst_element_set_state (port_data->tee, GST_STATE_NULL);
   gst_element_set_state (port_data->fakesink, GST_STATE_NULL);
-//  gst_element_set_state (port_data->capsfilter_scale, GST_STATE_NULL);
-  gst_element_set_state (port_data->videoscale, GST_STATE_NULL);
-  gst_element_set_state (port_data->videocrop, GST_STATE_NULL);
 
   g_object_unref (port_data->capsfilter);
   g_object_unref (port_data->tee);
   g_object_unref (port_data->fakesink);
   g_object_unref (port_data->tee_sink_pad);
-//  g_object_unref (port_data->capsfilter_scale);
-  g_object_unref (port_data->videoscale);
-  g_object_unref (port_data->videocrop);;
 
   port_data->tee_sink_pad = NULL;
   port_data->capsfilter = NULL;
   port_data->tee = NULL;
   port_data->fakesink = NULL;
-  port_data->videoscale = NULL;
-//  port_data->capsfilter_scale = NULL;
-  port_data->videocrop = NULL;
 
   return G_SOURCE_REMOVE;
 }
@@ -768,14 +761,10 @@ kms_style_composite_mixer_port_data_destroy (gpointer data)
     }
     KMS_STYLE_COMPOSITE_MIXER_UNLOCK (self);
 
-    gst_element_unlink_many (port_data->capsfilter, port_data->videoscale,
-        /*port_data->capsfilter_scale, */ port_data->videocrop, port_data->tee,
+    gst_element_unlink_many (port_data->capsfilter, port_data->tee,
         port_data->fakesink, NULL);
 
     CLEANUP_ELEMENT_FROM (self, port_data->capsfilter);
-//    CLEANUP_ELEMENT_FROM (self, port_data->capsfilter_scale);
-    CLEANUP_ELEMENT_FROM (self, port_data->videocrop);
-    CLEANUP_ELEMENT_FROM (self, port_data->videoscale);
     CLEANUP_ELEMENT_FROM (self, port_data->fakesink);
     CLEANUP_ELEMENT_FROM (self, port_data->tee);
   }
@@ -808,8 +797,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
-          videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
+          priv->videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -905,78 +894,25 @@ kms_style_composite_mixer_port_data_create (KmsStyleCompositeMixer * mixer,
   data->tee = gst_element_factory_make ("tee", NULL);
   data->fakesink = gst_element_factory_make ("fakesink", NULL);
   data->capsfilter = gst_element_factory_make ("capsfilter", NULL);
-  data->videocrop = gst_element_factory_make ("videocrop", NULL);
-  data->videoscale = gst_element_factory_make ("videoscale", NULL);
-//  data->capsfilter_scale = gst_element_factory_make ("capsfilter", NULL);
-  //g_object_set (data->videocrop, "top", 50, "left", 100, "right", 100, "bottom",
-  //    50, NULL);
-  g_object_set (data->videoscale, "method",
-      0 /*use nearest neighbour scaling (fast and ugly) */ , NULL);
 
   g_object_set (G_OBJECT (data->capsfilter), "caps-change-mode",
       1 /*delayed */ , NULL);
 
   g_object_set (G_OBJECT (data->fakesink), "async", FALSE, "sync", FALSE, NULL);
 
-  if (id == 1) {
-    // just for the first view, set to full screen first, hard-code to 1280x960
-    GstCaps *filtercaps;
-
-    filtercaps =
-        gst_caps_new_simple ("video/x-raw",
-        "width", G_TYPE_INT, 1280,
-        "height", G_TYPE_INT, 960,
-        "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1, NULL);
-    g_object_set (data->capsfilter, "caps", filtercaps, NULL);
-    gst_caps_unref (filtercaps);
-  }
-//  if (0 == kms_style_composite_mixer_resize_ports(mixer, 1)) {
-//    g_object_set (data->videocrop, "top", 0,
-//            "bottom", 0, NULL);
-//    g_object_set (data->videocrop, "left", 0,
-//            "right", 0, NULL);
-
-//    filtercaps =
-//            gst_caps_new_simple ("video/x-raw",
-//                    "width", G_TYPE_INT, 1280,
-//                    "height", G_TYPE_INT, 960,
-//                    "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1, NULL);
-//    g_object_set (data->capsfilter, "caps", filtercaps, NULL);
-//    gst_caps_unref (filtercaps);
-//    g_object_set (data->videocrop, "top", 120,
-//            "bottom", 120, NULL);
-//    g_object_set (data->videocrop, "left", 0,
-//            "right", 0, NULL);
-//  }
-
-  gst_bin_add_many (GST_BIN (mixer), data->capsfilter, data->videocrop,
-      data->videoscale, /*data->capsfilter_scale, */ data->tee, data->fakesink,
-      NULL);
+  gst_bin_add_many (GST_BIN (mixer), data->capsfilter, data->tee,
+      data->fakesink, NULL);
 
   gst_element_sync_state_with_parent (data->capsfilter);
   gst_element_sync_state_with_parent (data->tee);
   gst_element_sync_state_with_parent (data->fakesink);
-  gst_element_sync_state_with_parent (data->videocrop);
-  gst_element_sync_state_with_parent (data->videoscale);
-//  gst_element_sync_state_with_parent (data->capsfilter_scale);
-
-//  filtercaps =
-//      gst_caps_new_simple ("video/x-raw",
-//      "width", G_TYPE_INT, mixer->priv->output_width,
-//      "height", G_TYPE_INT, mixer->priv->output_height,
-//      "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1, NULL);
-//  g_object_set (data->capsfilter, "caps", filtercaps, NULL);
-//  gst_caps_unref (filtercaps);
 
   /*link basemixer -> video_agnostic */
   kms_base_hub_link_video_sink (KMS_BASE_HUB (mixer), data->id,
       data->capsfilter, "sink", FALSE);
 
-  gst_element_link_many (data->capsfilter, data->videoscale,
-      /*data->capsfilter_scale, */ data->videocrop, NULL);
-
   data->tee_sink_pad = gst_element_get_static_pad (data->tee, "sink");
-  gst_element_link_pads (data->videocrop, NULL, data->tee,
+  gst_element_link_pads (data->capsfilter, NULL, data->tee,
       GST_OBJECT_NAME (data->tee_sink_pad));
 
   tee_src = gst_element_get_request_pad (data->tee, "src_%u");
@@ -1378,7 +1314,7 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
     gst_element_sync_state_with_parent (self->priv->episodeoverlay);
     gst_element_sync_state_with_parent (self->priv->mixer_video_agnostic);
 
-    if (self->priv->videotestsrc == NULL && 1) {
+    if (self->priv->videotestsrc == NULL && 0) {
       GstElement *capsfilter;
       GstCaps *filtercaps;
       GstPad *pad;
