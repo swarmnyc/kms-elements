@@ -302,7 +302,8 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
       GST_INFO ("@rentao create tmp folder fot download image. %s", d);
     }
 
-    backgroundImg = cvLoadImage (url, CV_LOAD_IMAGE_UNCHANGED);
+    backgroundImg =
+        cvLoadImage (url, CV_LOAD_IMAGE_COLOR /*ignore alpha channel */ );
 
     if (backgroundImg != NULL) {
       GST_DEBUG ("Image loaded from file");
@@ -312,7 +313,9 @@ kms_episode_overlay_parse_style (KmsEpisodeOverlay * self)
         gchar *file_name = g_strconcat (self->priv->dir, "/image.png", NULL);
 
         load_from_url (file_name, url);
-        backgroundImg = cvLoadImage (file_name, CV_LOAD_IMAGE_UNCHANGED);
+        backgroundImg =
+            cvLoadImage (file_name,
+            CV_LOAD_IMAGE_COLOR /*ignore alpha channel */ );
         g_remove (file_name);
         g_free (file_name);
       }

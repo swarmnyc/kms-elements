@@ -981,8 +981,8 @@ pad_removed_cb (GstElement * element, GstPad * pad, gpointer data)
 static void
 pad_release_request_cb (GstElement * element, GstPad * pad, gpointer data)
 {
-  GST_TRACE ("@rentao Release request pad %" GST_PTR_FORMAT, element);
-  GST_TRACE ("@rentao Release request pad %" GST_PTR_FORMAT, pad);
+//  if (element) GST_TRACE ("@rentao Release request pad %" GST_PTR_FORMAT, element);
+//  if (pad) GST_TRACE ("@rentao Release request pad %" GST_PTR_FORMAT, pad);
 }
 
 static int
