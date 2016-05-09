@@ -15,6 +15,7 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+#define _XOPEN_SOURCE 500
 
 #include "kmsstylecompositemixer.h"
 #include <commons/kmsagnosticcaps.h>
@@ -22,11 +23,16 @@
 #include <commons/kmsloop.h>
 #include <commons/kmsrefstruct.h>
 #include <math.h>
+#include <ftw.h>
 #include <stdlib.h>
 #include <glib-object.h>
 #include <json-glib/json-glib.h>
+#include <libsoup/soup.h>
+#include <glib/gstdio.h>
+#include <string.h>
 
 #define LATENCY 600             //ms
+#define TEMP_PATH "/tmp/XXXXXX"
 
 #define PLUGIN_NAME "stylecompositemixer"
 
@@ -122,12 +128,10 @@ struct _KmsStyleCompositeMixerPrivate
   gchar *background_image;
   gchar *style;
   gchar font_desc[64];
-//  GstElement *source, *jpg_decoder;
-//  GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale,
-//      *textoverlay;
-//  GstCaps *filtercaps;
   KmsConpositeViewPrivate views[MAX_VIEW_COUNT];
   GstElement *episodeoverlay;
+  gboolean dir_created;
+  gchar *dir;
 };
 
 /* class initialization */
@@ -143,9 +147,6 @@ typedef struct _KmsStyleCompositeMixerData
   gint id;
   KmsStyleCompositeMixer *mixer;
   GstElement *capsfilter;
-//  GstElement *capsfilter_scale;
-//  GstElement *videocrop;
-//  GstElement *videoscale;
   GstElement *tee;
   GstElement *fakesink;
   gboolean input;
@@ -194,34 +195,6 @@ compare_port_data (gconstpointer a, gconstpointer b)
   return port_data_a->id - port_data_b->id;
 }
 
-#if 0
-static gint
-get_width_height (GstPad * pad, gint * width, gint * height)
-{
-  gint ret = 0;
-  GstCaps *caps;
-  const GstStructure *str;
-  gint l_width, l_height;
-
-  if (pad != NULL) {
-    caps = gst_pad_get_current_caps (pad);
-    if (caps != NULL) {
-      str = gst_caps_get_structure (caps, 0);
-      if (gst_structure_get_int (str, "width", &l_width) &&
-          gst_structure_get_int (str, "height", &l_height)) {
-        GST_DEBUG ("@rentao get_width_height width=%d height=%d", l_width,
-            l_height);
-        *width = l_width;
-        *height = l_height;
-        ret = 1;
-      }
-      gst_caps_unref (caps);
-    }
-  }
-  return ret;
-}
-#endif
-
 // resize the source views' resolution to full cover the output resolution and keep the ratio unchanged.
 #define SCALE_TO_JUST_FULL_COVER(sw, sh, ow, oh) \
   if ((sw) * (oh) >= (sh) * (ow)) { \
@@ -238,69 +211,11 @@ get_width_height (GstPad * pad, gint * width, gint * height)
     g_object_unref (element); \
     element = NULL;
 
-#if 0
-static gint
-kms_style_composite_mixer_resize_ports (gpointer data, gint change)
-{
-  KmsStyleCompositeMixer *self = KMS_STYLE_COMPOSITE_MIXER (data);
-  GstCaps *filtercaps;
-  GList *l;
-  GList *values;
-  gint port_count;
-
-  KMS_STYLE_COMPOSITE_MIXER_LOCK (self);
-  values = g_hash_table_get_values (self->priv->ports);
-  port_count = self->priv->n_elems;
-  values = g_list_sort (values, compare_port_data);
-  if (port_count <= 0) {
-    goto done;
-  }
-  for (l = values; l != NULL; l = l->next) {
-    KmsStyleCompositeMixerData *port_data = l->data;
-
-    if (port_data->input == FALSE) {
-      port_count--;
-      continue;
-    }
-    if (change > 0) {
-      filtercaps =
-          gst_caps_new_simple ("video/x-raw",
-          "width", G_TYPE_INT, 800,
-          "height", G_TYPE_INT, 600,
-          "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1, NULL);
-      g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
-      gst_caps_unref (filtercaps);
-//      g_object_set (port_data->videocrop, "top", 0,
-//              "bottom", 0, NULL);
-//      g_object_set (port_data->videocrop, "left", 0,
-//              "right", 0, NULL);
-    } else {
-      filtercaps =
-          gst_caps_new_simple ("video/x-raw",
-          "width", G_TYPE_INT, 1280,
-          "height", G_TYPE_INT, 960,
-          "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1, NULL);
-      g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
-      gst_caps_unref (filtercaps);
-//      g_object_set (port_data->videocrop, "top", 120,
-//              "bottom", 120, NULL);
-//      g_object_set (port_data->videocrop, "left", 0,
-//              "right", 0, NULL);
-    }
-  }
-done:
-  KMS_STYLE_COMPOSITE_MIXER_UNLOCK (self);
-
-  return port_count;
-}
-#endif
-
 static void
 kms_style_composite_mixer_recalculate_sizes (gpointer data)
 {
   KmsStyleCompositeMixer *self = KMS_STYLE_COMPOSITE_MIXER (data);
 
-//  GstCaps *filtercaps;
   gint n_columns, n_rows;
   GList *l;
   GList *values = g_hash_table_get_values (self->priv->ports);
@@ -315,8 +230,7 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
   gint pad_left, pad_top;
   gint port_count = self->priv->n_elems;
   gint width_reminder;
-  gint i, mappedCount = 0, unmappedCount =
-      0, curColumn, left, top, src_width, src_height, occupied;
+  gint i, mappedCount = 0, unmappedCount = 0, curColumn, left, top, occupied;
   KmsStyleCompositeMixerData *viewMapping[MAX_VIEW_COUNT] =
       { NULL, NULL, NULL, NULL };
   KmsStyleCompositeMixerData *viewUnMapping[10] =
@@ -381,8 +295,6 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
     for (i = 0; i < MAX_VIEW_COUNT; i++) {
       if (viewMapping[i] != NULL)
         continue;
-//      if (self->priv->views[i].enable == 0)
-//        continue;
       unmappedCount--;
       viewMapping[i] = viewUnMapping[unmappedCount];
       viewUnMapping[unmappedCount] = NULL;
@@ -432,124 +344,23 @@ kms_style_composite_mixer_recalculate_sizes (gpointer data)
       occupied = 0;
     else
       occupied = 1;
-/*
-    if (self->priv->views[i].enable == 0) {
-      g_object_set (port_data->video_mixer_pad, "alpha", 0.0, NULL);    // make it disable (transparent)
-      continue;
-    }
-*/
+
     left = pad_left + b_width * curColumn;
     top = pad_top;
-    // get the source view's resolution.
-    src_width = self->priv->views[i].width;
-    src_height = self->priv->views[i].height;
-    if (src_width < 0 || occupied == 1)
-      src_width = o_width;
-    if (src_height < 0 || occupied == 1)
-      src_height = o_height;
-    // resize the source views' resolution to full cover the output resolution and keep the ratio unchanged.
-//    SCALE_TO_JUST_FULL_COVER (src_width, src_height, o_width, o_height);
-/*
-    if (src_width * o_height >= src_height * o_width) {
-      src_width = o_height * src_width / src_height;
-      src_height = o_height;
-    } else {
-      src_height = o_width * src_height / src_width;
-      src_width = o_width;
-    }
-*/
-    /*hardcode to 800x600 here, make src width and height in style obsolute */
-    src_width = 800;
-    src_height = 600;
+
     // only one view, show it full screen.
     if (mappedCount <= 1) {
-      // make it a little bit smaller than full screen to prevent from offset.
-//      v_height = o_width * o_height / src_width;
-//      src_width = src_width * v_height / src_height;
-//      src_height = v_height;
       v_width = o_width - 0;
       v_height = o_height - 0;
       left = 0;
       top = 0;
-
-//      SCALE_TO_JUST_FULL_COVER (src_width, src_height, v_width, v_height);
-//      filtercaps =
-//              gst_caps_new_simple ("video/x-raw",
-//                      "width", G_TYPE_INT, src_width, "height", G_TYPE_INT, src_height,
-//                      "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
-//                      GST_TYPE_FRACTION, 1, 1, NULL);
-//      g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
-//      gst_caps_unref (filtercaps);
-//      g_object_set (port_data->videocrop, "top", 120,
-//              "bottom", 120, NULL);
-//      g_object_set (port_data->videocrop, "left", 0,
-//              "right", 0, NULL);
-//      g_object_set (port_data->video_mixer_pad, "width", v_width, "height",
-//          v_height, NULL);
-//    } else {
-//      g_object_set (port_data->video_mixer_pad, "width", 0, "height", 0, NULL);
-    } else {
-//      src_width = 800;
-//      src_height = 600;
-//      filtercaps =
-//          gst_caps_new_simple ("video/x-raw",
-//          "width", G_TYPE_INT, src_width, "height", G_TYPE_INT, src_height,
-//          "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
-//          GST_TYPE_FRACTION, 1, 1, NULL);
-//      g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
-//      gst_caps_unref (filtercaps);
-//      // crop the source view and paste to master view.
-//      g_object_set (port_data->videocrop, "top", (src_height - v_height) / 2,
-//              "bottom", (src_height - v_height) / 2, NULL);
-//      g_object_set (port_data->videocrop, "left", (src_width - v_width) / 2,
-//              "right", (src_width - v_width) / 2, NULL);
     }
-//    filtercaps =
-//        gst_caps_new_simple ("video/x-raw",
-//        "width", G_TYPE_INT, src_width, "height", G_TYPE_INT, src_height,
-//        "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
-//        GST_TYPE_FRACTION, 1, 1, NULL);
-//    g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
-//    gst_caps_unref (filtercaps);
-//    // crop the source view and paste to master view.
-//    g_object_set (port_data->videocrop, "top", (src_height - v_height) / 2,
-//        "bottom", (src_height - v_height) / 2, NULL);
-//    g_object_set (port_data->videocrop, "left", (src_width - v_width) / 2,
-//        "right", (src_width - v_width) / 2, NULL);
-
-//    SCALE_TO_JUST_FULL_COVER (src_width, src_height, v_width, v_height);
-//    src_height = o_height;
-//    src_width = o_width;
-//    filtercaps =
-//        gst_caps_new_simple ("video/x-raw",
-//        "width", G_TYPE_INT, src_width, "height", G_TYPE_INT, src_height,
-//        "framerate", GST_TYPE_FRACTION, 15, 1, "pixel-aspect-ratio",
-//        GST_TYPE_FRACTION, 1, 1, NULL);
-//    g_object_set (port_data->capsfilter, "caps", filtercaps, NULL);
-//    gst_caps_unref (filtercaps);
-
-//    SCALE_TO_JUST_FULL_COVER (src_width, src_height, v_width, v_height);
-//    filtercaps =
-//        gst_caps_new_simple ("video/x-raw",
-//        "width", G_TYPE_INT, src_width, "height", G_TYPE_INT, src_height, NULL);
-//    g_object_set (port_data->capsfilter_scale, "caps", filtercaps, NULL);
-//    gst_caps_unref (filtercaps);
-
-//    src_width = 800;
-//    src_height = 600;
-//    // crop the source view and paste to master view.
-//    g_object_set (port_data->videocrop, "top", (src_height - v_height) / 2,
-//        "bottom", (src_height - v_height) / 2, NULL);
-//    g_object_set (port_data->videocrop, "left", (src_width - v_width) / 2,
-//        "right", (src_width - v_width) / 2, NULL);
-//    g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top, "width", v_width, "height", v_height,
-//    g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top, "alpha", 1.0, NULL);
     g_object_set (port_data->video_mixer_pad, "xpos", left, "ypos", top,
         "width", v_width, "height", v_height, "alpha", 1.0, NULL);
 
     GST_TRACE_OBJECT (port_data->video_mixer_pad,
-        "@rentao top=%d left=%d, pad_left=%d pad_top=%d, src_width=%d src_height=%d, v_width=%d v_height=%d",
-        top, left, pad_left, pad_top, src_width, src_height, v_width, v_height);
+        "@rentao top=%d left=%d, pad_left=%d pad_top=%d, v_width=%d v_height=%d",
+        top, left, pad_left, pad_top, v_width, v_height);
 
     // build the view style that will send to the episodeoverlay plugin.
     if (occupied == 0) {
@@ -797,8 +608,8 @@ link_to_videomixer (GstPad * pad, GstPadProbeInfo * info,
   data->latency_probe_id = 0;
 
   sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->
-          priv->videomixer), "sink_%u");
+      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (mixer->priv->
+          videomixer), "sink_%u");
 
   if (G_UNLIKELY (sink_pad_template == NULL)) {
     GST_ERROR_OBJECT (mixer, "Error taking a new pad from videomixer");
@@ -985,131 +796,90 @@ pad_release_request_cb (GstElement * element, GstPad * pad, gpointer data)
 //  if (pad) GST_TRACE ("@rentao Release request pad %" GST_PTR_FORMAT, pad);
 }
 
-static int
-create_freezeimage_video (KmsStyleCompositeMixer * self)
+static gboolean
+kms_style_composite_mixer_is_valid_uri (const gchar * url)
 {
-  GstElement *source, *jpg_decoder;
-  GstElement *capsfilter, *freeze, *videoconvert, *videorate, *videoscale,
-      *textoverlay;
-  GstCaps *filtercaps;
-  GstPad *pad;
-  GstPadTemplate *sink_pad_template;
-  gchar *bg_img;
+  gboolean ret;
+  GRegex *regex;
 
-  if (self->priv->videomixer == NULL)
-    return -2;
-  bg_img = self->priv->background_image;
+  regex = g_regex_new ("^(?:((?:https?):)\\/\\/)([^:\\/\\s]+)(?::(\\d*))?(?:\\/"
+      "([^\\s?#]+)?([?][^?#]*)?(#.*)?)?$", 0, 0, NULL);
+  ret = g_regex_match (regex, url, G_REGEX_MATCH_ANCHORED, NULL);
+  g_regex_unref (regex);
 
-  // create the elements.
-  if (bg_img == NULL) {
-    source = gst_element_factory_make ("souphttpsrc", NULL);
-    g_object_set (source, "location", "http://placeimg.com/1280/720/any.jpg",
-        "is-live", TRUE, NULL);
-    GST_TRACE ("@rentao using default background image");
-  } else if (bg_img[0] == '/') {
-    if (!g_file_test (bg_img, G_FILE_TEST_EXISTS)) {
-      GST_ERROR ("@rentao file %s not found.", bg_img);
-      return -1;
-    }
-    source = gst_element_factory_make ("filesrc", NULL);
-    g_object_set (G_OBJECT (source), "location", bg_img, NULL);
-    GST_TRACE ("@rentao using local file(%s) as background image", bg_img);
-  } else {
-    source = gst_element_factory_make ("souphttpsrc", NULL);
-    g_object_set (source, "location", bg_img, "is-live", TRUE, NULL);
-    GST_TRACE ("@rentao using http file(%s) as background image", bg_img);
+  return ret;
+}
+
+static gboolean
+load_from_url (gchar * file_name, const gchar * url)
+{
+  SoupSession *session;
+  SoupMessage *msg;
+  FILE *dst;
+  gboolean retOK = FALSE;
+
+  session = soup_session_sync_new ();
+  msg = soup_message_new ("GET", url);
+  soup_session_send_message (session, msg);
+
+  dst = fopen (file_name, "w+");
+
+  if (dst == NULL) {
+    GST_ERROR ("It is not possible to create the file");
+    goto end;
   }
+  fwrite (msg->response_body->data, 1, msg->response_body->length, dst);
+  fclose (dst);
+  retOK = TRUE;
 
-  filtercaps = gst_caps_new_simple ("image/jpeg",
-      "framerate", GST_TYPE_FRACTION, 1, 1, NULL);
-  g_object_set (G_OBJECT (source), "caps", filtercaps, NULL);
-  gst_caps_unref (filtercaps);
-
-  jpg_decoder = gst_element_factory_make ("jpegdec", NULL);
-  if (!jpg_decoder) {
-    GST_ERROR ("Jpg Decoder could not be created. Exiting.\n");
-    return -1;
-  }
-
-  sink_pad_template =
-      gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS
-      (self->priv->videomixer), "sink_%u");
-  if (G_UNLIKELY (sink_pad_template == NULL)) {
-    GST_ERROR_OBJECT (self, "Error taking a new pad from videomixer");
-    return -1;
-  }
-
-  freeze = gst_element_factory_make ("imagefreeze", NULL);
-  videoconvert = gst_element_factory_make ("videoconvert", NULL);
-  videorate = gst_element_factory_make ("videorate", NULL);
-  videoscale = gst_element_factory_make ("videoscale", NULL);
-  // textoverlay source code:
-  //   https://code.google.com/p/ossbuild/source/browse/trunk/Main/GStreamer/Source/gst-plugins-base/ext/pango/gsttextoverlay.c?spec=svn1012&r=1007
-  textoverlay = gst_element_factory_make ("textoverlay", NULL);
-  g_object_set (G_OBJECT (textoverlay),
-      "shaded-background", 1, "auto-resize", 0, "font-desc", "sans bold 24",
-      "xpad", 54, "ypad", 12, NULL);
-
-  capsfilter = gst_element_factory_make ("capsfilter", NULL);
-  filtercaps =
-      gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "AYUV",
-      "width", G_TYPE_INT, self->priv->output_width,
-      "height", G_TYPE_INT, self->priv->output_height,
-      "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
-  g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
-  gst_caps_unref (filtercaps);
-
-  gst_bin_add_many (GST_BIN (self), source, jpg_decoder, freeze, textoverlay,
-      videoconvert, videorate, videoscale, capsfilter, NULL);
-
-  gst_element_link_many (source, jpg_decoder, freeze, textoverlay, videoconvert,
-      videorate, videoscale, NULL);
-  gst_element_link (videoscale, capsfilter);
-
-  /*link capsfilter -> videomixer */
-  pad = gst_element_request_pad (self->priv->videomixer, sink_pad_template,
-      NULL, NULL);
-
-  gst_element_link_pads (capsfilter, NULL,
-      self->priv->videomixer, GST_OBJECT_NAME (pad));
-  g_object_set (pad, "xpos", 0, "ypos", 0, "alpha", 0.9, NULL);
-  g_object_unref (pad);
-
-  gst_element_sync_state_with_parent (capsfilter);
-  gst_element_sync_state_with_parent (videoscale);
-  gst_element_sync_state_with_parent (videorate);
-  gst_element_sync_state_with_parent (videoconvert);
-  gst_element_sync_state_with_parent (freeze);
-  gst_element_sync_state_with_parent (jpg_decoder);
-  gst_element_sync_state_with_parent (source);
-  gst_element_sync_state_with_parent (textoverlay);
-//  self->priv->capsfilter = capsfilter;
-//  self->priv->videoscale = videoscale;
-//  self->priv->videorate = videorate;
-//  self->priv->videoconvert = videoconvert;
-//  self->priv->freeze = freeze;
-//  self->priv->jpg_decoder = jpg_decoder;
-//  self->priv->source = source;
-//  self->priv->textoverlay = textoverlay;
-
-  return 0;
+end:
+  g_object_unref (msg);
+  g_object_unref (session);
+  return retOK;
 }
 
 static void
 kms_style_composite_mixer_setup_background_image (KmsStyleCompositeMixer * self)
 {
-  gchar jsonStyle[512];
+  gchar *url = self->priv->background_image;
+  gchar *file_name;
 
-  GST_TRACE ("@rentao");
-
-  if (self->priv->episodeoverlay == NULL
-      || self->priv->background_image == NULL)
+  // check the videomixer plugin created?
+  if (self->priv->videomixer == NULL || url == NULL)
     return;
-  g_snprintf (jsonStyle, 512, "{'background_image':'%s'}",
-      self->priv->background_image);
-  g_object_set (G_OBJECT (self->priv->episodeoverlay), "style", jsonStyle,
-      NULL);
-  GST_TRACE ("@rentao style=%s", jsonStyle);
+
+  // load from url.
+  if (kms_style_composite_mixer_is_valid_uri (url)) {
+    if (!self->priv->dir_created) {
+      gchar *d = g_strdup (TEMP_PATH);
+
+      self->priv->dir = g_mkdtemp (d);
+      self->priv->dir_created = TRUE;
+      GST_INFO ("@rentao create tmp folder fot download image. %s", d);
+    }
+    file_name = g_strconcat (self->priv->dir, "/image.png", NULL);
+
+    if (load_from_url (file_name, url)) {
+      g_object_set (G_OBJECT (self->priv->videomixer), "background-image",
+          file_name, NULL);
+      GST_INFO ("@rentao set background file %s ok, and delete it.", file_name);
+    }
+    g_remove (file_name);
+    g_free (file_name);
+  }
+//
+//
+//
+//  GST_TRACE ("@rentao");
+//
+//  if (self->priv->episodeoverlay == NULL
+//      || self->priv->background_image == NULL)
+//    return;
+//  g_snprintf (jsonStyle, 512, "{'background_image':'%s'}",
+//      self->priv->background_image);
+//  g_object_set (G_OBJECT (self->priv->episodeoverlay), "style", jsonStyle,
+//      NULL);
+//  GST_TRACE ("@rentao style=%s", jsonStyle);
 }
 
 static gboolean
@@ -1173,8 +943,6 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
     self->priv->background_image = g_strdup (background);
     kms_style_composite_mixer_setup_background_image (self);
     GST_TRACE ("@rentao set background=%s", self->priv->background_image);
-    if (0)
-      create_freezeimage_video (self);
   }
   json_reader_end_member (reader);
 
@@ -1300,12 +1068,15 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
     g_object_set (G_OBJECT (self->priv->videomixer), "background",
         1 /*black */ , "start-time-selection", 1 /*first */ , "width",
         self->priv->output_width, "height", self->priv->output_height, NULL);
+
+    // try to setup background image here, because the background image could be set before this compositor creates.
+    kms_style_composite_mixer_setup_background_image (self);
+
     self->priv->mixer_video_agnostic =
         gst_element_factory_make ("agnosticbin", NULL);
 
     self->priv->episodeoverlay =
         gst_element_factory_make ("episodeoverlay", NULL);
-    kms_style_composite_mixer_setup_background_image (self);
 
     gst_bin_add_many (GST_BIN (mixer), self->priv->videomixer,
         self->priv->episodeoverlay, self->priv->mixer_video_agnostic, NULL);
@@ -1414,6 +1185,25 @@ kms_style_composite_mixer_dispose (GObject * object)
   G_OBJECT_CLASS (kms_style_composite_mixer_parent_class)->dispose (object);
 }
 
+static int
+delete_file (const char *fpath, const struct stat *sb, int typeflag,
+    struct FTW *ftwbuf)
+{
+  int rv = g_remove (fpath);
+
+  if (rv) {
+    GST_WARNING ("Error deleting file: %s. %s", fpath, strerror (errno));
+  }
+
+  return rv;
+}
+
+static void
+remove_recursive (const gchar * path)
+{
+  nftw (path, delete_file, 64, FTW_DEPTH | FTW_PHYS);
+}
+
 static void
 kms_style_composite_mixer_finalize (GObject * object)
 {
@@ -1432,6 +1222,10 @@ kms_style_composite_mixer_finalize (GObject * object)
   if (self->priv->style != NULL)
     g_free (self->priv->style);
 
+  if (self->priv->dir_created) {
+    remove_recursive (self->priv->dir);
+    g_free (self->priv->dir);
+  }
 //  GST_TRACE ("@rentao, finalize, background=%s", self->priv->background_image);
   G_OBJECT_CLASS (kms_style_composite_mixer_parent_class)->finalize (object);
 }
@@ -1491,12 +1285,6 @@ kms_style_composite_mixer_set_property (GObject * object, guint prop_id,
   KMS_STYLE_COMPOSITE_MIXER_LOCK (self);
   switch (prop_id) {
     case PROP_BACKGROUND_IMAGE:
-//      g_free (self->priv->background_image);
-//      self->priv->background_image = g_value_dup_string (value);
-//      ret = create_freezeimage_video (self);
-//
-//      GST_TRACE_OBJECT (object, "@rentao create_freezeimage_video return %d",
-//          ret);
       break;
     case PROP_STYLE:
       g_free (self->priv->style);
@@ -1613,6 +1401,8 @@ kms_style_composite_mixer_init (KmsStyleCompositeMixer * self)
     self->priv->views[i].height = -1;
   }
   g_strlcpy (self->priv->font_desc, "sans bold 16", 64);
+  self->priv->dir_created = FALSE;
+  self->priv->dir = NULL;
 
   self->priv->loop = kms_loop_new ();
 }
