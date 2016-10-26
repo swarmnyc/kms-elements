@@ -7,7 +7,7 @@ git clone https://github.com/swarmnyc/kms-elements.git -b swarm_composite_6.2
 git remote add kms-origin https://github.com/Kurento/kms-elements.git
 git remote update
 # create a new branch to do the merge job.
-git check -b swarm_kms_6.4
+git checkout -b swarm_kms_6.4
 # merge to tag:6.4.0
 git merge 6.4.0
 # fix some conflicts and then you can rebuild the project(see below)
@@ -19,18 +19,38 @@ git commit -am "Merge to 6.4.0"
 2nd way to merge to original repository supported by kurento team.
 -------
 ```
-cd kms-elements/
-# compare HEAD with [tag]6.4.0, and zip all different files.
-tar -czvf kms-elements-HEAD_on_6.4.0.tar.gz `git diff --name-only 6.4.0`
-# checkout most update tag[6.6.0]
-git checkout  6.6.0
+# Clone swarm kms repository
+git clone https://github.com/swarmnyc/kms-elements.git -b swarm_kms_6.4
+# Add another remote repository supported by kurento team.
+git remote add kms-origin https://github.com/Kurento/kms-elements.git
+git remote update
+# compare HEAD([branch]swarm_kms_6.4) on [tag]6.4.0, and zip all different files.
+tar -czvf ../kms-elements-HEAD_on_6.4.0.tar.gz `git diff --name-only 6.4.0`
+# checkout most update [tag]6.6.1
+git checkout  6.6.1
 # unzip all different(between HEAD and 6.4.0) files to it.
 tar -xzvf kms-elements-HEAD_on_6.4.0.tar.gz kms-elements/
 # fix some conflicts and then you can rebuild the project(see below)
+...
+# add missing files
+cd kms-elements/
+git add `tar tf ../kms-elements-HEAD_on_6.4.0.tar.gz`
 # commit the merge if everything is cool.
-git commit -am "Merge to 6.4.0"
+git commit -m "Rebase swarm_kms_6.4 from [tag]6.4.0 to [tag]6.6.1"
 ```
 
+3rd way to merge to original repository supported by kurento team.
+-------
+```
+# Clone swarm kms repository
+git clone https://github.com/swarmnyc/kms-elements.git -b swarm_kms_6.4
+# Add another remote repository supported by kurento team.
+git remote add kms-origin https://github.com/Kurento/kms-elements.git
+git remote update
+git rebase 6.6.1
+# fix some conflicts and then you can rebuild the project(see below)
+
+```
 
 Build kms-elements
 -------
@@ -58,6 +78,7 @@ cd usrsctp/
 ./configure --prefix=/usr
 make
 sudo make install
+cd ..
 git clone https://github.com/Kurento/openwebrtc-gst-plugins.git
 cd openwebrtc-gst-plugins/
 ./autogen.sh
