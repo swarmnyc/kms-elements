@@ -17,6 +17,9 @@ set(KMS_ELEMENTS_SOURCES
   kmsdispatcheronetomany.c
   kmscompositemixer.c
   kmsalphablending.c
+  kmstextoverlay.c
+  kmsstylecompositemixer.c
+  kmsepisodeoverlay.c
 )
 
 set(KMS_ELEMENTS_HEADERS
@@ -29,6 +32,9 @@ set(KMS_ELEMENTS_HEADERS
   kmsdispatcheronetomany.h
   kmscompositemixer.h
   kmsalphablending.h
+  kmstextoverlay.h
+  kmsstylecompositemixer.h
+  kmsepisodeoverlay.h
 )
 
 set(ENUM_HEADERS
@@ -48,8 +54,18 @@ set_property (TARGET ${LIBRARY_NAME}plugins
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}/../..
-    ${KmsGstCommons_INCLUDE_DIRS}
-    ${gstreamer-1.5_INCLUDE_DIRS}
+  ${KmsGstCommons_INCLUDE_DIRS}
+  ${gstreamer-1.5_INCLUDE_DIRS}
+  ${gstreamer-base-1.5_INCLUDE_DIRS}
+  ${gstreamer-app-1.5_INCLUDE_DIRS}
+  ${gstreamer-pbutils-1.5_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}
+  ${libsoup-2.4_INCLUDE_DIRS}
+  ${json-glib-1.0_INCLUDE_DIRS}
+  ${opencv_INCLUDE_DIRS}
+  ${pango_INCLUDE_DIRS}
+  ${cairo_INCLUDE_DIRS}
 )
 
 target_link_libraries(${LIBRARY_NAME}plugins
@@ -59,6 +75,10 @@ target_link_libraries(${LIBRARY_NAME}plugins
   ${gstreamer-app-1.5_LIBRARIES}
   ${gstreamer-pbutils-1.5_LIBRARIES}
   ${libsoup-2.4_LIBRARIES}
+  ${json-glib-1.0_LIBRARIES}
+  ${opencv_LIBRARIES}
+  ${pango_LIBRARIES}
+  ${cairo_LIBRARIES}
 )
 
 install(

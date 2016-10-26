@@ -1,38 +1,26 @@
-\******************************
-============
-* Check [README.Swarm] first
-============
-\******************************
-============
-
-
-
-[![License badge](https://img.shields.io/badge/license-Apache2-orange.svg)](http://www.apache.org/licenses/LICENSE-2.0)
-[![Documentation badge](https://readthedocs.org/projects/fiware-orion/badge/?version=latest)](http://doc-kurento.readthedocs.org/en/latest/)
-[![Docker badge](https://img.shields.io/docker/pulls/fiware/orion.svg)](https://hub.docker.com/r/fiware/stream-oriented-kurento/)
-[![Support badge]( https://img.shields.io/badge/support-sof-yellowgreen.svg)](http://stackoverflow.com/questions/tagged/kurento)
-
 [![][KurentoImage]][Kurento]
 
-Copyright © 2013-2016 [Kurento]. Licensed under [Apache 2.0 License].
+Copyright © 2013-2016 [Kurento]. Licensed under [LGPL v2.1 License].
 
-kms-elements
-============
+kurento-one2many-call
+=====================
 
-Elements for Kurento Media Server.
+Kurento Java Tutorial: WebRTC one to many video call.
 
-The kms-elements project contains **elements** needed for the Kurento Media
-Server.
+Running this tutorial
+---------------------
+
+In order to run this tutorial, please read the following [instructions].
 
 What is Kurento
 ---------------
 
-Kurento is an open source software project providing a platform suitable 
+Kurento is an open source software project providing a platform suitable
 for creating modular applications with advanced real-time communication
 capabilities. For knowing more about Kurento, please visit the Kurento
 project website: http://www.kurento.org.
 
-Kurento is part of [FIWARE]. For further information on the relationship of 
+Kurento is part of [FIWARE]. For further information on the relationship of
 FIWARE and Kurento check the [Kurento FIWARE Catalog Entry]
 
 Kurento is part of the [NUBOMEDIA] research initiative.
@@ -64,17 +52,14 @@ Issues and bug reports should be posted to the [GitHub Kurento bugtracker]
 Licensing and distribution
 --------------------------
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-  http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Software associated to Kurento is provided as open source under GNU Library or
+"Lesser" General Public License, version 2.1 (LGPL-2.1). Please check the
+specific terms and conditions linked to this open source license at
+http://opensource.org/licenses/LGPL-2.1. Please note that software derived as a
+result of modifying the source code of Kurento software in order to fix a bug
+or incorporate enhancements is considered a derivative work of the product.
+Software that merely uses or aggregates (i.e. links to) an otherwise unmodified
+version of existing software is not considered a derivative work.
 
 Contribution policy
 -------------------
@@ -119,12 +104,11 @@ Before asking for support, please read first the [Kurento Netiquette Guidelines]
 [Kurento Netiquette Guidelines]: http://www.kurento.org/blog/kurento-netiquette-guidelines
 [Kurento Public Mailing list]: https://groups.google.com/forum/#!forum/kurento
 [KurentoImage]: https://secure.gravatar.com/avatar/21a2a12c56b2a91c8918d5779f1778bf?s=120
-[Apache 2.0 License]: http://www.apache.org/licenses/LICENSE-2.0
+[LGPL v2.1 License]: http://www.gnu.org/licenses/lgpl-2.1.html
 [NUBOMEDIA]: http://www.nubomedia.eu
 [StackOverflow]: http://stackoverflow.com/search?q=kurento
 [Read-the-docs]: http://read-the-docs.readthedocs.org/
 [readthedocs.org]: http://kurento.readthedocs.org/
 [Open API specification]: http://kurento.github.io/doc-kurento/
 [apiary.io]: http://docs.streamoriented.apiary.io/
-
-[README.Swarm]: ./README.swarm.md
+[instructions]: http://www.kurento.org/docs/current/tutorials/node/tutorial-one2many.html

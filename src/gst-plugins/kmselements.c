@@ -25,6 +25,9 @@
 #include "kmsselectablemixer.h"
 #include "kmscompositemixer.h"
 #include "kmsalphablending.h"
+#include "kmsstylecompositemixer.h"
+#include "kmstextoverlay.h"
+#include "kmsepisodeoverlay.h"
 
 static gboolean
 kurento_init (GstPlugin * kurento)
@@ -54,6 +57,18 @@ kurento_init (GstPlugin * kurento)
   }
 
   if (!kms_composite_mixer_plugin_init (kurento)) {
+    return FALSE;
+  }
+
+  if (!kms_style_composite_mixer_plugin_init (kurento)) {
+    return FALSE;
+  }
+
+  if (!kms_text_overlay_plugin_init (kurento)) {
+    return FALSE;
+  }
+
+  if (!kms_episode_overlay_plugin_init (kurento)) {
     return FALSE;
   }
 
