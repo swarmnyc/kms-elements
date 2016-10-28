@@ -7,6 +7,7 @@ cd docker/
 ./build-run-test.sh
 cd ../kurento-test-nodejs/
 npm install
+cp -r ../docker/.build/js/* ./node_modules/kurento-client/node_modules/kurento-client-elements/
 npm start
 ```
 
