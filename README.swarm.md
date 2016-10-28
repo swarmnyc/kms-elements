@@ -87,6 +87,9 @@ make
 sudo make install
 ```
 
+### start to build kms-elements with docker
+check [docker/README](./docker/README.md)
+
 ### start to build kms-elements
 ```
 git clone https://github.com/swarmnyc/kms-elements.git -b swarm_composite_6.2
