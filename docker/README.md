@@ -1,3 +1,25 @@
+How to build, run and test docker image.
+====================
+Make sure you have installed node.js & npm (see below)
+```
+cd docker/
+./generate.sh
+./build-run-test.sh
+cd ../kurento-test-nodejs/
+npm install
+npm start
+```
+
+Install node.js & npm
+====================
+```
+curl -sL https://deb.nodesource.com/setup | sudo bash -
+sudo apt-get install -y nodejs
+sudo npm install npm -g
+```
+
+------------------------------------------------------------------------------------------------------------------------
+
 [![License badge](https://img.shields.io/badge/license-Apache2-orange.svg)](http://www.apache.org/licenses/LICENSE-2.0)
 [![Documentation badge](https://readthedocs.org/projects/fiware-orion/badge/?version=latest)](http://doc-kurento.readthedocs.org/en/latest/)
 [![Docker badge](https://img.shields.io/docker/pulls/fiware/orion.svg)](https://hub.docker.com/r/fiware/stream-oriented-kurento/)
