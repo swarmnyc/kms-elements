@@ -14,3 +14,7 @@ echo Package all .so files to stylecompositor.tar.gz:
 /bin/sleep 3
 tar czvf ../stylecompositor.tar.gz src/server/lib* src/gst-plugins/lib* gst-plugins-bad/libgstcompositor.so
 
+echo
+echo copy nodejs module to kurento-test-nodejs...
+/bin/sleep 2
+cp -r ./js/* ../../kurento-test-nodejs/node_modules/kurento-client/node_modules/kurento-client-elements/
