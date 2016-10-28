@@ -5,7 +5,10 @@ Make sure you have installed node.js & npm (see below)
 cd docker/
 ./generate.sh
 ./build-run-test.sh
-cd ../kurento-test-nodejs/
+```
+Test kurento server using node.js test project:
+```
+cd kurento-test-nodejs/
 npm install
 cp -r ../docker/.build/js/* ./node_modules/kurento-client/node_modules/kurento-client-elements/
 npm start
