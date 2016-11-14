@@ -120,6 +120,10 @@ replace shared_node_modules/swarm_composite/kurento-client-elements with the js 
 sudo service kurento-media-server-6.0 restart
 
 cd ../kurento-test-nodejs/
+# make sure node and npm installed.
+curl -sL https://deb.nodesource.com/setup_4.x | sudo bash -
+sudo apt-get install -y nodejs
+sudo npm install npm -g
 npm install
 # copy new version js file to current appplication server's node_modules.
 mv ./node_modules/kurento-client/node_modules/kurento-client-elements/ ./node_modules/kurento-client/node_modules/kurento-client-elements_origin/
