@@ -12,8 +12,9 @@ cd docker/
 Test kurento server using node.js test project:
 ```
 cd kurento-test-nodejs/
+npm install bower
 npm install
-cp -r ../docker/.build/js/* ./node_modules/kurento-client/node_modules/kurento-client-elements/
+../docker/install_kms_elements.sh
 npm start
 ```
 
