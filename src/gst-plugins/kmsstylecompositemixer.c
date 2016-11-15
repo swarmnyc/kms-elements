@@ -1085,7 +1085,7 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
     gst_element_sync_state_with_parent (self->priv->episodeoverlay);
     gst_element_sync_state_with_parent (self->priv->mixer_video_agnostic);
 
-    if (self->priv->videotestsrc == NULL && 0) {
+    if (self->priv->videotestsrc == NULL && 1) {
       GstElement *capsfilter;
       GstCaps *filtercaps;
       GstPad *pad;
@@ -1114,8 +1114,8 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
       }
       filtercaps =
           gst_caps_new_simple ("video/x-raw",
-          "width", G_TYPE_INT, self->priv->output_width,
-          "height", G_TYPE_INT, self->priv->output_height,
+          "width", G_TYPE_INT, 32,
+          "height", G_TYPE_INT, 24,
           "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
       g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
@@ -1316,7 +1316,7 @@ kms_style_composite_mixer_class_init (KmsStyleCompositeMixerClass * klass)
   KmsBaseHubClass *base_hub_class = KMS_BASE_HUB_CLASS (klass);
   GstElementClass *gstelement_class = GST_ELEMENT_CLASS (klass);
 
-  GST_TRACE ("@rentao");
+  GST_TRACE ("@rentao version:6.6.1-debug-frozen");
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
       "StyleCompositeMixer", "Generic",
       "Mixer element that composes n input flows in one output flow according to the specified style.",
