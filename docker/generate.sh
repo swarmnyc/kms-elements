@@ -1,14 +1,16 @@
 #!/bin/bash
 
+BASEDIR=$(dirname "$0")
+cd ${BASEDIR}
+
 BUILD_ROOT=.build
 
-mkdir $BUILD_ROOT
-cp -r ../gst-plugins-bad ./$BUILD_ROOT/
+mkdir ${BUILD_ROOT} 2>> /dev/null
 
-cd $BUILD_ROOT
+cd ${BUILD_ROOT}
 cmake ../.. -DGENERATE_JS_CLIENT_PROJECT=TRUE
 make
 
-cd ..
+cd ${BASEDIR}
 ./install_kms_elements.sh
 

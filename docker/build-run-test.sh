@@ -1,3 +1,13 @@
+#!/bin/bash
+
+# check docker-engine installed.
+docker_installed=`dpkg -s docker-engine 2>> /dev/null | grep install`
+if [ "" == "$docker_installed" ]; then
+    echo docker-engine not installed.
+    echo run ./install_docker.sh to install docker first.
+    exit
+fi
+
 image_tag=apptalks/kurento:6.6.1
 container_name=kurento
 sudo docker build -t $image_tag .

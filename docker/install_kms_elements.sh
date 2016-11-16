@@ -1,23 +1,22 @@
-sudo cp -n `dpkg  -L gstreamer1.5-plugins-bad | grep libgstcompositor.so` `dpkg  -L gstreamer1.5-plugins-bad | grep libgstcompositor.so`.bak
-sudo cp -n `dpkg  -L kms-elements-6.0 | grep libkmselementsmodule.so` `dpkg  -L kms-elements-6.0 | grep libkmselementsmodule.so`.bak
-sudo cp -n `dpkg  -L kms-elements-6.0 | grep libkmselementsimpl.so.6$` `dpkg  -L kms-elements-6.0 | grep libkmselementsimpl.so.6$`.bak
-sudo cp -n `dpkg  -L kms-elements-6.0 | grep libkmselementsplugins.so` `dpkg  -L kms-elements-6.0 | grep libkmselementsplugins.so`.bak
+#!/bin/bash
+
+BASEDIR=$(dirname "$0")
+cd ${BASEDIR}
 
 BUILD_ROOT=.build
 
+mkdir ${BUILD_ROOT} 2>> /dev/null
+cp -r ../gst-plugins-bad ./${BUILD_ROOT}/
 
-cp -r ../gst-plugins-bad ./$BUILD_ROOT/
-cd $BUILD_ROOT/
-sudo cp gst-plugins-bad/libgstcompositor.so `dpkg  -L gstreamer1.5-plugins-bad | grep libgstcompositor.so`
-sudo cp src/server/libkmselementsmodule.so `dpkg  -L kms-elements-6.0 | grep libkmselementsmodule.so`
-sudo cp src/server/libkmselementsimpl.so.6 `dpkg  -L kms-elements-6.0 | grep libkmselementsimpl.so.6$`
-sudo cp src/gst-plugins/libkmselementsplugins.so `dpkg  -L kms-elements-6.0 | grep libkmselementsplugins.so`
+# go inside .build/
+cd ${BUILD_ROOT}
+../install_kms_so_files_only.sh ${BUILD_ROOT}
 
 echo
 echo Package all .so files to stylecompositor.tar.gz:
-/bin/sleep 3
+/bin/sleep 2
 rm ../stylecompositor.tar.gz
-tar czvf ../stylecompositor.tar.gz src/server/lib* src/gst-plugins/lib* gst-plugins-bad/libgstcompositor.so
+tar czvf ../stylecompositor.tar.gz src/server/lib* src/gst-plugins/lib* gst-plugins-bad/libgstcompositor.so ../install_kms_so_files_only.sh
 
 echo
 echo copy nodejs module to kurento-test-nodejs...
