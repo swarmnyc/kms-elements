@@ -12,12 +12,15 @@ if [ -n "$KMS_STUN_IP" -a -n "$KMS_STUN_PORT" ]; then
 fi
 
 # Remove ipv6 local loop until ipv6 is supported
-cat /etc/hosts | sed '/::1/d' | tee /etc/hosts > /dev/null
+# cat /etc/hosts | sed '/::1/d' | tee /etc/hosts > /dev/null
 
-cd /app/server
-ldd libkmselementsmodule.so
-ls -al
-nm libkmselementsmodule.so
-ldd /usr/bin/kurento-media-server
+echo Starting test node.js server...
+cd /kurento-test-nodejs
+/usr/bin/node server.js &
 
+echo Starting Kurento...
 exec /usr/bin/kurento-media-server "$@"
+
+
+
+

@@ -3,36 +3,47 @@
 # VERSION               4.4.3
 
 FROM      ubuntu:14.04
-MAINTAINER Patxi Gortázar <patxi.gortazar@gmail.com>
+MAINTAINER Tao Ren <tao@swarmnyc.com>, <tour.ren.gz@gmail.com>
 
-RUN apt-get update \
-  && apt-get -y dist-upgrade \
-	&& apt-get install -y wget \
-	&& apt-get install -y libboost-all-dev libjson-glib-dev bison flex uuid-dev libsoup2.4-dev 
+RUN \
+    apt-get update && \
+    apt-get -y dist-upgrade  && \
+    apt-get install -y curl wget
+
+RUN \
+    curl -sL https://deb.nodesource.com/setup_4.x | sudo bash - && \
+	apt-get update && \
+	apt-get install -y nodejs && \
+	npm install npm -g && \
+	npm install bower -g
+
+RUN \
+	apt-get install -y libboost-all-dev libjson-glib-dev bison flex uuid-dev libsoup2.4-dev
+
 
 RUN	echo "deb http://ubuntu.kurento.org/ trusty kms6" | tee /etc/apt/sources.list.d/kurento.list \
 	&& wget -O - http://ubuntu.kurento.org/kurento.gpg.key | apt-key add - \
 	&& apt-get update \
 	&& apt-get -y install kurento-media-server-6.0 \
 	&& apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 8888
 
 COPY ./entrypoint.sh /entrypoint.sh
+COPY .build/stylecompositor.tar.gz /stylecompositor.tar.gz
+COPY .build/kurento-test-nodejs.tar.gz /kurento-test-nodejs.tar.gz
 
-RUN mkdir /app && mkdir /app/server && mkdir /app/gst-plugins && mkdir /app/gst-plugins-bad
-COPY .build/src/server/lib* /app/server/
-COPY .build/src/gst-plugins/lib* /app/gst-plugins/
-COPY .build/gst-plugins-bad/libgstcompositor.so /app/gst-plugins-bad/
-RUN cp /app/gst-plugins-bad/libgstcompositor.so `dpkg  -L gstreamer1.5-plugins-bad | grep libgstcompositor.so`
-RUN cp /app/server/libkmselementsmodule.so `dpkg  -L kms-elements-6.0 | grep libkmselementsmodule.so`
-RUN cp /app/server/libkmselementsimpl.so.6 `dpkg  -L kms-elements-6.0 | grep libkmselementsimpl.so.6$`
-RUN cp /app/gst-plugins/libkmselementsplugins.so `dpkg  -L kms-elements-6.0 | grep libkmselementsplugins.so`
+RUN tar xzvf /stylecompositor.tar.gz && tar xzvf /kurento-test-nodejs.tar.gz
 
-ENV GST_DEBUG=Kurento*:5
-# ENV KURENTO_MODULES_PATH=/app/server
-# ENV GST_PLUGIN_PATH=/app/gst-plugins
+
+RUN cp /gst-plugins-bad/libgstcompositor.so `dpkg  -L gstreamer1.5-plugins-bad | grep libgstcompositor.so`
+RUN cp /src/server/libkmselementsmodule.so `dpkg  -L kms-elements-6.0 | grep libkmselementsmodule.so`
+RUN cp /src/server/libkmselementsimpl.so.6 `dpkg  -L kms-elements-6.0 | grep libkmselementsimpl.so.6$`
+RUN cp /src/gst-plugins/libkmselementsplugins.so `dpkg  -L kms-elements-6.0 | grep libkmselementsplugins.so`
+
+
+ENV GST_DEBUG=Kurento*:5,stylecompositemixer:9,compositor:9
 
 
 ENTRYPOINT ["/entrypoint.sh"]

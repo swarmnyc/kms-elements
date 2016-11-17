@@ -35,7 +35,7 @@ var options =
 	cert: fs.readFileSync('keys/server.crt')
 };
 
-var style = {width:1280, height:720, 'frame-rate':25, 'pad-y':160, background:"http://placeimg.com/800/600/any.jpg", views:[]};
+var style = {width:1280, height:720, 'frame-rate':12, 'pad-y':160, background:"http://placeimg.com/800/600/any.jpg", views:[]};
 //var style = {width:1280, height:720, 'pad-y':160, background:"https://s3.amazonaws.com/apptalksqa/defaultBack.jpg", views:[]};
 var views_style = {views:[{width:640, height:480, text:"123"},{width:320, height:480, text:"1234"},{id:3},{text:"abc"}]};
 var app = express();

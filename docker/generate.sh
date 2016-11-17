@@ -8,7 +8,9 @@ BUILD_ROOT=.build
 mkdir ${BUILD_ROOT} 2>> /dev/null
 
 cd ${BUILD_ROOT}
-cmake ../.. -DGENERATE_JS_CLIENT_PROJECT=TRUE
+if [ -z "$1" ]; then
+    cmake ../.. -DGENERATE_JS_CLIENT_PROJECT=TRUE
+fi
 make
 
 cd ..
