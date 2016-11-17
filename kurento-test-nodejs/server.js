@@ -279,6 +279,7 @@ function startPresenter(sessionId, ws, sdpOffer, callback) {
 					});
 					//_composite.setBackgroundImage("/etc/kurento/bg.jpg");//("http://placeimg.com/800/600/any.jpg");
 					presenter.composite = _composite;
+					//addPlayer(sessionId, ws, sdpOffer, callback);
 					addPresenter(sessionId, ws, sdpOffer, callback);
 				});
 			});
@@ -327,6 +328,47 @@ function startPresenter(sessionId, ws, sdpOffer, callback) {
  });
  }
  */
+//var playerURI="http://www.youtubeinmp4.com/redirect.php?video=x_cmZyYHMTk&r=D396bQeGXWJJXzm6y0qWbDPg8A0mWpViMlVWDWE76T4%3D";
+var playerURI="https://192.168.16.112:8443/sample.mp4";
+function addPlayer(sessionId, ws, sdpOffer, callback) {
+    // Create player
+    console.log('Creating PlayerEndpoint');
+    presenter.pipeline.create('PlayerEndpoint', {uri: playerURI}, function(error, playerEndpoint) {
+        if (error) return wsError(ws, "ERROR 3: " + error);
+
+        playerEndpoint.on('EndOfStream', function() {
+            console.log('END OF STREAM');
+            pipeline.release();
+        });
+
+        console.log('Now Playing: ' + playerURI);
+        playerEndpoint.play(function(error) {
+            if (error) return wsError(ws, "ERROR 4: " + error);
+
+            presenter.composite.createHubPort(function (error, _hubPort) {
+                    if (error) {
+                            console.log("error creating hubport for participant");
+                            return calback(error);
+                    }
+                    presenter.hubPorts[sessionId] = _hubPort;
+                    style.views.push({id:parseInt(sessionId), width:800, height:600, text:"ID:"+sessionId});
+                    presenter.composite.setStyle(JSON.stringify(style));
+
+                    _hubPort.setMaxOutputBitrate(parseInt(sessionId), function(err, obj){
+                            _hubPort.getMaxOutputBitrate(function(err, obj){
+                                    console.log("hubPort.getMaxOuputBitrate(session id) = " + obj);
+                            });
+
+                    });
+                    playerEndpoint.connect(_hubPort, function() {
+        				console.log("PlayerEndpoint connected to hubport.");
+		        	});
+		    });
+        });
+
+	});
+
+}
 
 function addPresenter(sessionId, ws, sdpOffer, callback) {
 	console.warn("startPresenter sid=" + sessionId);
@@ -586,6 +628,11 @@ function stop(sessionId) {
 		delete presenter.webRtcEndpoint[sessionId];
 		//var style = {width:800, height:600, 'pad-y':10, background:"http://placeimg.com/1280/960/any.jpg", views:[{id:1234, width:800, height:600, text:"Host Kurento"}]};
 		presenter.composite.setStyle(JSON.stringify(style));
+		console.log("setStyle" + JSON.stringify(style));
+                presenter.composite.getStyle(function(err, ret) {
+                     console.log( "getStyle return:" + ret );
+                });
+
 
 	} else if (viewers[sessionId]) {
 		viewers[sessionId].hubPort.release();

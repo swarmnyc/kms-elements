@@ -11,6 +11,6 @@ cd ${BUILD_ROOT}
 cmake ../.. -DGENERATE_JS_CLIENT_PROJECT=TRUE
 make
 
-cd ${BASEDIR}
+cd ..
 ./install_kms_elements.sh
 
