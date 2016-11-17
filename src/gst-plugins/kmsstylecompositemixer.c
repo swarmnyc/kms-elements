@@ -124,6 +124,7 @@ struct _KmsStyleCompositeMixerPrivate
   GRecMutex mutex;
   gint n_elems;
   gint output_width, output_height;
+  gint frame_rate;
   gint pad_x, pad_y, line_weight;
   gchar *background_image;
   gchar *style;
@@ -888,7 +889,7 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
   JsonParser *parser;
   GError *error;
   JsonReader *reader;
-  gint width = 0, height = 0, pad_x = 0, pad_y = 0, line =
+  gint width = 0, height = 0, frame_rate = 0, pad_x = 0, pad_y = 0, line =
       0, count, i, id, enable, show_hide_flag = 0;
   const gchar *background, *text, *fontdesc_str;
   gchar **members;
@@ -922,6 +923,13 @@ kms_style_composite_mixer_parse_style (KmsStyleCompositeMixer * self)
     self->priv->output_height = height;
     if (self->priv->pad_y < 0)
       self->priv->pad_y = height / 10;
+  }
+  json_reader_end_member (reader);
+
+  json_reader_read_member (reader, "frame-rate");
+  frame_rate = json_reader_get_int_value (reader);
+  if (frame_rate > 0) {
+    self->priv->frame_rate = frame_rate;
   }
   json_reader_end_member (reader);
 
@@ -1067,7 +1075,7 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
     self->priv->videomixer = gst_element_factory_make ("compositor", NULL);
     g_object_set (G_OBJECT (self->priv->videomixer), "background",
         1 /*black */ , "start-time-selection", 1 /*first */ , "width",
-        self->priv->output_width, "height", self->priv->output_height, NULL);
+        self->priv->output_width, "height", self->priv->output_height, "frame-rate", self->priv->frame_rate, NULL);
 
     // try to setup background image here, because the background image could be set before this compositor creates.
     kms_style_composite_mixer_setup_background_image (self);
@@ -1114,9 +1122,9 @@ kms_style_composite_mixer_handle_port (KmsBaseHub * mixer,
       }
       filtercaps =
           gst_caps_new_simple ("video/x-raw",
-          "width", G_TYPE_INT, 32,
-          "height", G_TYPE_INT, 24,
-          "framerate", GST_TYPE_FRACTION, 30, 1, NULL);
+          "width", G_TYPE_INT, 16,
+          "height", G_TYPE_INT, 16,
+          "framerate", GST_TYPE_FRACTION, self->priv->frame_rate, 1, NULL);
       g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
 
@@ -1252,8 +1260,9 @@ kms_style_composite_mixer_get_property (GObject * object, guint property_id,
 
       // change this style format will affect StyleCompositeImpl.cpp function: bool setViewEnableStatus(int viewId, char enable)
       g_snprintf (style, 2048,
-          "{'width':%d, 'height':%d, 'pad-x':%d, 'pad-y':%d, 'line-weight':%d, 'font-desc':'%s', 'background':'%s', 'views':[{'id':%d, 'enable':%d, 'text':'%s'},{'id':%d, 'enable':%d, 'text':'%s'},{'id':%d, 'enable':%d, 'text':'%s'},{'id':%d, 'enable':%d, 'text':'%s'}]}",
+          "{'width':%d, 'height':%d, 'frame-rate':%d, 'pad-x':%d, 'pad-y':%d, 'line-weight':%d, 'font-desc':'%s', 'background':'%s', 'views':[{'id':%d, 'enable':%d, 'text':'%s'},{'id':%d, 'enable':%d, 'text':'%s'},{'id':%d, 'enable':%d, 'text':'%s'},{'id':%d, 'enable':%d, 'text':'%s'}]}",
           self->priv->output_width, self->priv->output_height,
+          self->priv->frame_rate,
           self->priv->pad_x, self->priv->pad_y, self->priv->line_weight,
           self->priv->font_desc, self->priv->background_image,
           self->priv->views[0].id, self->priv->views[0].enable,
@@ -1390,6 +1399,7 @@ kms_style_composite_mixer_init (KmsStyleCompositeMixer * self)
   //TODO:Obtain the dimensions of the bigger input stream
   self->priv->output_height = -1;
   self->priv->output_width = -1;
+  self->priv->frame_rate = 15;
   self->priv->pad_x = -1;
   self->priv->pad_y = -1;
   self->priv->line_weight = 2;
